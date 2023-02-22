@@ -20,7 +20,7 @@ class Questionnaire {
           Navigator.of(context).pop();
         }
       })
-      ..setBackgroundColor(const Color(0x00000000))
+      ..setBackgroundColor(Colors.white)
       ..setNavigationDelegate(
         NavigationDelegate(
           onProgress: (int progress) {
