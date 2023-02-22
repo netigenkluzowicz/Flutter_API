@@ -1,5 +1,6 @@
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:flutter/material.dart';
+import 'dart:io';
 
 class Questionnaire {
   static Widget webViewQuestionnaireController({
@@ -34,7 +35,10 @@ class Questionnaire {
       ..loadRequest(Uri.parse(
           'https://apis.netigen.eu/survey-webview?packageName=$packageName&appVersion=v$version&platform=android&locale=$locale'));
     return Scaffold(
-      body: WebViewWidget(controller: controller),
+      body: SafeArea(
+          bottom: Platform.isIOS ? true : false,
+          top: Platform.isIOS ? true : false,
+          child: WebViewWidget(controller: controller)),
     );
   }
 }
