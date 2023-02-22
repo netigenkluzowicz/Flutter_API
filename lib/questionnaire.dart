@@ -2,7 +2,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 import 'package:flutter/material.dart';
 
 class Questionnaire {
-  static WebViewController webViewController({
+  static WebViewController webViewQuestionnaireController({
     required BuildContext context,
     required String version,
     required String locale,
