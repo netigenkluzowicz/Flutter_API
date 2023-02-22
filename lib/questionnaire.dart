@@ -4,7 +4,8 @@ import 'dart:io';
 
 class Questionnaire {
   ///
-  /// Add onMessageRecived function e.g. if you want to send google analytics
+  /// Add onMessageRecived function e.g. if you want to send google analytics after
+  /// questionnaire action
   ///
   static Widget webViewQuestionnaireController({
     required BuildContext context,
