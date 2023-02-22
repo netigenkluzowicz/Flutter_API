@@ -6,6 +6,7 @@ class Questionnaire {
     required BuildContext context,
     required String version,
     required String locale,
+    required String packageName,
     Function? onMessageReceived,
   }) {
     final controller = WebViewController()
@@ -31,7 +32,7 @@ class Questionnaire {
         ),
       )
       ..loadRequest(Uri.parse(
-          'https://apis.netigen.eu/survey-webview?packageName=pl.netigen.bestloupe&appVersion=v$version&platform=android&locale=$locale'));
+          'https://apis.netigen.eu/survey-webview?packageName=$packageName&appVersion=v$version&platform=android&locale=$locale'));
     return controller;
   }
 }
