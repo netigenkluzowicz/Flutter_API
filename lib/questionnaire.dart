@@ -3,6 +3,9 @@ import 'package:flutter/material.dart';
 import 'dart:io';
 
 class Questionnaire {
+  ///
+  /// Add onMessageRecived function e.g. if you want to send google analytics
+  ///
   static Widget webViewQuestionnaireController({
     required BuildContext context,
     required String version,
