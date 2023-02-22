@@ -7,7 +7,7 @@ class Questionnaire {
   /// Add onMessageRecived function e.g. if you want to send google analytics after
   /// questionnaire action
   ///
-  static Widget webViewQuestionnaireController({
+  static Scaffold webViewQuestionnaireController({
     required BuildContext context,
     required String version,
     required String locale,
