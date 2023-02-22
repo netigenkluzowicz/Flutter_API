@@ -1,7 +1,7 @@
 library flutter_api;
 
 class Functions {
-  String helloWorld() {
+  static String helloWorld() {
     return 'Hello World from Netigen Flutter API';
   }
 }
