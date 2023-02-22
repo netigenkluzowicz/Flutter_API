@@ -20,7 +20,6 @@ class Questionnaire {
           onMessageReceived: (JavaScriptMessage message) {
         onMessageReceived;
         if (message.message.contains('QUIT_YES') ||
-            //message.message.contains('FETCHING_ERROR') ||
             message.message.contains('EXIT')) {
           Navigator.of(context).pop();
         }
