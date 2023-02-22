@@ -2,7 +2,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 import 'package:flutter/material.dart';
 
 class Questionnaire {
-  static WebViewController webViewQuestionnaireController({
+  static Widget webViewQuestionnaireController({
     required BuildContext context,
     required String version,
     required String locale,
@@ -33,6 +33,8 @@ class Questionnaire {
       )
       ..loadRequest(Uri.parse(
           'https://apis.netigen.eu/survey-webview?packageName=$packageName&appVersion=v$version&platform=android&locale=$locale'));
-    return controller;
+    return Scaffold(
+      body: WebViewWidget(controller: controller),
+    );
   }
 }
