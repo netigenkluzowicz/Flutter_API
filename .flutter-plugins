@@ -1,5 +1,8 @@
 # This is a generated file; do not edit or check into version control.
 google_mobile_ads=/Users/antonipochopien/.pub-cache/hosted/pub.dev/google_mobile_ads-2.3.0/
+in_app_purchase=/Users/antonipochopien/.pub-cache/hosted/pub.dev/in_app_purchase-3.1.5/
+in_app_purchase_android=/Users/antonipochopien/.pub-cache/hosted/pub.dev/in_app_purchase_android-0.2.4+2/
+in_app_purchase_storekit=/Users/antonipochopien/.pub-cache/hosted/pub.dev/in_app_purchase_storekit-0.3.6+1/
 webview_flutter=/Users/antonipochopien/.pub-cache/hosted/pub.dev/webview_flutter-4.0.4/
 webview_flutter_android=/Users/antonipochopien/.pub-cache/hosted/pub.dev/webview_flutter_android-3.3.0/
 webview_flutter_wkwebview=/Users/antonipochopien/.pub-cache/hosted/pub.dev/webview_flutter_wkwebview-3.1.0/
