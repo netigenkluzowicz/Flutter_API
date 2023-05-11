@@ -12,7 +12,6 @@ void printW(String text) => _print(text, "W");
 
 void _print(String text, String color) {
   if (Platform.isIOS) {
-    debugPrint(text);
     switch (color) {
       case 'R':
         debugPrint("🔴 $text");
