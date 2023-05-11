@@ -87,7 +87,7 @@ class _SurveyScreenState extends State<SurveyScreen> {
       )
       ..loadRequest(
         Uri.parse(
-          '${widget.serverUrl}?packageName=${packageInfo.packageName}&appVersion=v${packageInfo.version}&platform=android&locale=${widget.locale}',
+          '${widget.serverUrl}?packageName=${packageInfo.packageName}&appVersion=v${packageInfo.version}&platform=${Platform.isAndroid ? 'android' : 'ios'}&locale=${widget.locale}',
         ),
       );
 

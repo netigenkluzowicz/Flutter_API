@@ -52,13 +52,13 @@ class _RewardedAdSingleton {
       request: request,
       rewardedAdLoadCallback: RewardedAdLoadCallback(
         onAdLoaded: (RewardedAd ad) {
-          printR('[DEV-LOG] RewardedAd loaded');
+          printR('[DEV-LOG] RewardedAd onAdLoaded');
           _rewardedAd = ad;
           _loadAttempts = 0;
           _loaded = true;
         },
         onAdFailedToLoad: (LoadAdError error) async {
-          printR('[DEV-LOG] RewardedAd failed to load: $error.');
+          printR('[DEV-LOG] RewardedAd onAdFailedToLoad: $error.');
           _loadAttempts += 1;
           _rewardedAd = null;
           _loaded = false;
@@ -85,6 +85,7 @@ class _RewardedAdSingleton {
 
     if (_rewardedAd == null) {
       printR('[DEV-LOG] Warning: attempt to show interstitial before loaded.');
+      await _executeCallback(onAdFailedToShowFullScreenContent);
       return;
     }
 
@@ -136,10 +137,10 @@ class _RewardedAdSingleton {
           if (tick >= 25) {
             printY("[DEV-LOG] fullscreen ad disposed after 5s");
             _rewardedAd?.dispose();
-            _createRewardedAd();
+            return;
           }
         },
-      ).then((_) => !_loaded),
+      ).then((_) => !_loaded && tick < 25),
     );
   }
 }

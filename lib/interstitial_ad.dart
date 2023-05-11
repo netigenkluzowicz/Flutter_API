@@ -15,8 +15,6 @@ Future<void> initInterstitialAd({
       createAd: createAd,
     );
 
-bool loadedInterstitialAd = _InterstitialAdSingleton.instance.loaded;
-
 Future<void> createInterstitialAd() async =>
     await _InterstitialAdSingleton.instance.createInterstitialAd();
 
@@ -60,8 +58,6 @@ class _InterstitialAdSingleton {
   int? _minIntervalBetweenAdsInSecs;
   bool _loaded = false;
 
-  bool get loaded => _loaded && _adUnitId != null;
-
   Future<void> init({
     required String adUnitId,
     int? minIntervalBetweenAdsInSecs,
@@ -87,13 +83,13 @@ class _InterstitialAdSingleton {
       request: request,
       adLoadCallback: InterstitialAdLoadCallback(
         onAdLoaded: (InterstitialAd ad) {
-          printR('[DEV-LOG] InterstitialAd loaded');
+          printR('[DEV-LOG] InterstitialAd onAdLoaded');
           _interstitialAd = ad;
           _loadAttempts = 0;
           _loaded = true;
         },
         onAdFailedToLoad: (LoadAdError error) async {
-          printR('[DEV-LOG] InterstitialAd failed to load: $error.');
+          printR('[DEV-LOG] InterstitialAd onAdFailedToLoad: $error.');
           _loadAttempts += 1;
           _interstitialAd = null;
           _loaded = false;
@@ -195,10 +191,10 @@ class _InterstitialAdSingleton {
           if (tick >= 25) {
             printY("[DEV-LOG] fullscreen ad disposed after 5s");
             _interstitialAd?.dispose();
-            createInterstitialAd();
+            return;
           }
         },
-      ).then((_) => !_loaded),
+      ).then((_) => !_loaded && tick < 25),
     );
   }
 }
