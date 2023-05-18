@@ -2,11 +2,12 @@ import 'dart:io';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_api/utils/color_print.dart';
 import 'package:package_info/package_info.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
+
+import 'utils.dart';
 
 class SurveyScreen extends StatefulWidget {
   static const String route = "/flutter-api/SurveyScreen";

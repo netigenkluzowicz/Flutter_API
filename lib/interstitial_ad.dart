@@ -1,6 +1,6 @@
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
-import '/utils/color_print.dart';
+import 'utils.dart';
 
 const int _maxFailedLoadAttempts = 3;
 

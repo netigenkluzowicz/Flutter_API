@@ -1,6 +1,4 @@
-import 'dart:io';
-
-import 'package:flutter/material.dart';
+part of '../utils.dart';
 
 void printR(String text) => _print(text, "R");
 void printG(String text) => _print(text, "G");
