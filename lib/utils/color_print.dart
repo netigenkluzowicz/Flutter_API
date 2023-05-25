@@ -1,12 +1,19 @@
 part of '../utils.dart';
 
-void printR(String text) => _print(text, "R");
-void printG(String text) => _print(text, "G");
-void printY(String text) => _print(text, "Y");
-void printB(String text) => _print(text, "B");
-void printM(String text) => _print(text, "M");
-void printC(String text) => _print(text, "C");
-void printW(String text) => _print(text, "W");
+/// red (iOS 🔴)
+void printR(Object? object) => _print(object.toString(), "R");
+/// green (iOS 🟢)
+void printG(Object? object) => _print(object.toString(), "G");
+/// yellow (iOS 🟡)
+void printY(Object? object) => _print(object.toString(), "Y");
+/// blue (iOS 🔵)
+void printB(Object? object) => _print(object.toString(), "B");
+/// magenta (iOS 🟥)
+void printM(Object? object) => _print(object.toString(), "M");
+/// cyan (iOS 🟨)
+void printC(Object? object) => _print(object.toString(), "C");
+/// white (iOS ⚪)
+void printW(Object? object) => _print(object.toString(), "W");
 
 void _print(String text, String color) {
   if (Platform.isIOS) {
