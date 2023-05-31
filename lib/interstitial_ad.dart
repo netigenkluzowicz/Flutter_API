@@ -43,6 +43,18 @@ Future<void> showInterstitialAd({
       onEndCallback: onEndCallback,
     );
 
+/// Enables:
+/// - createInterstitialAd 
+/// - showInterstitialAd
+void enableInterstitialAd() async =>
+    _InterstitialAdSingleton.instance.enable();
+
+/// Disables:
+/// - createInterstitialAd 
+/// - showInterstitialAd
+void disableInterstitialAd() async =>
+    _InterstitialAdSingleton.instance.disable();
+
 class _InterstitialAdSingleton {
   // make this a singleton class
   _InterstitialAdSingleton._();
@@ -57,6 +69,10 @@ class _InterstitialAdSingleton {
   String? _adUnitId;
   int? _minIntervalBetweenAdsInSecs;
   bool _loaded = false;
+  bool _disabled = false;
+
+  void disable() => _disabled = true;
+  void enable() => _disabled = false;
 
   Future<void> init({
     required String adUnitId,
@@ -73,11 +89,16 @@ class _InterstitialAdSingleton {
   }
 
   Future<void> createInterstitialAd() async {
+    if (_disabled) {
+      _disposeAd();
+      return;
+    }
     if (_adUnitId == null) {
       throw ArgumentError(
         "[DEV-LOG] Missing _adUnitId in InterstitialAdSingleton. Execute InterstitialAdSingleton.instance.init()",
       );
     }
+
     await InterstitialAd.load(
       adUnitId: _adUnitId!,
       request: request,
@@ -100,6 +121,7 @@ class _InterstitialAdSingleton {
       ),
     );
     await waitingOnLoad();
+    if (_disabled) _disposeAd();
   }
 
   Future<void> showInterstitialAd({
@@ -108,7 +130,8 @@ class _InterstitialAdSingleton {
     Future<void> Function()? onStartCallback,
     Future<void> Function()? onEndCallback,
   }) async {
-    if (skip == true) {
+    if (skip == true || _disabled) {
+      if (_disabled) _disposeAd();
       await _executeCallback(onStartCallback);
       await _executeCallback(onEndCallback);
       return;
@@ -194,7 +217,13 @@ class _InterstitialAdSingleton {
             return;
           }
         },
-      ).then((_) => !_loaded && tick < 25),
+      ).then((_) => (!_loaded && tick < 25) || _disabled),
     );
+  }
+
+  Future<void> _disposeAd() async {
+    await _interstitialAd?.dispose();
+    _loaded = false;
+    _interstitialAd = null;
   }
 }
