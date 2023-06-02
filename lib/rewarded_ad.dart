@@ -2,16 +2,18 @@ import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import 'utils.dart';
 
-
 const int _maxFailedLoadAttempts = 3;
 
-void initRewardedAd({
-  required String adUnitId,
-}) async =>
-    _RewardedAdSingleton.instance.init(
-      adUnitId: adUnitId,
-    );
+/// Must be used once before any [showRewardedAd].
+/// Sets [adUnitId] for RewardedAd.
+void initRewardedAd({required String adUnitId}) => _RewardedAdSingleton.instance.init(adUnitId: adUnitId);
 
+/// Loads and shows RewardedAd. IMPORTANT: New RewardedAd isn't loaded after closing previous.
+/// Loading is stopped after 5s.
+///
+/// - [onUserEarnedReward] will be invoked when the user earns a reward.
+/// - [freeReward] execute onUserEarnedReward without creating and showing RewardedAd
+/// - [onFailed] called when ad fails to show full screen content.
 Future<void> showRewardedAd({
   required Future<void> Function() onUserEarnedReward,
   bool? freeReward,
@@ -36,9 +38,7 @@ class _RewardedAdSingleton {
   String? _adUnitId;
   bool _loaded = false;
 
-  void init({
-    required String adUnitId,
-  }) async {
+  void init({required String adUnitId}) {
     _adUnitId = adUnitId;
   }
 
@@ -85,11 +85,12 @@ class _RewardedAdSingleton {
     await _createRewardedAd();
 
     if (_rewardedAd == null) {
-      printR('[DEV-LOG] Warning: attempt to show interstitial before loaded.');
+      printR('[DEV-LOG] Warning: attempt to show RewardedAd before loaded.');
       await _executeCallback(onAdFailedToShowFullScreenContent);
       return;
     }
 
+    await _rewardedAd!.setImmersiveMode(true);
     _rewardedAd!.fullScreenContentCallback = FullScreenContentCallback(
       onAdFailedToShowFullScreenContent: (
         RewardedAd ad,
@@ -103,7 +104,6 @@ class _RewardedAdSingleton {
       },
     );
 
-    await _rewardedAd!.setImmersiveMode(true);
     await _rewardedAd!.show(
       onUserEarnedReward: (AdWithoutView ad, RewardItem __) async {
         printR('[DEV-LOG] RewardedAd onUserEarnedReward');
@@ -132,16 +132,14 @@ class _RewardedAdSingleton {
         const Duration(milliseconds: 200),
         () {
           tick++;
-          printY(
-            "[DEV-LOG] loading of ad step ${(tick * 0.2).toStringAsFixed(1)}s",
-          );
           if (tick >= 25) {
-            printY("[DEV-LOG] fullscreen ad disposed after 5s");
+            printY("[DEV-LOG] RewardedAd loading timed out after after 5s.");
             _rewardedAd?.dispose();
             return;
           }
         },
       ).then((_) => !_loaded && tick < 25),
     );
+    if (tick < 25) printY("[DEV-LOG] RewardedAd loaded after ${(tick * 0.2).toStringAsFixed(1)}s");
   }
 }

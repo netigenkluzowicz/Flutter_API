@@ -4,6 +4,10 @@ import 'utils.dart';
 
 const int _maxFailedLoadAttempts = 3;
 
+/// Must be used once before any [createInterstitialAd] or [showInterstitialAd].
+/// - [adUnitId] - sets adUnitId for all [InterstitialAd] requests
+/// - [minIntervalBetweenAdsInSecs] - sets minimal time interval between [InterstitialAd] requests, requests before this interval will be skipped
+/// - [createAd] - loads [InterstitialAd]
 Future<void> initInterstitialAd({
   required String adUnitId,
   int? minIntervalBetweenAdsInSecs,
@@ -15,21 +19,28 @@ Future<void> initInterstitialAd({
       createAd: createAd,
     );
 
-Future<void> createInterstitialAd() async =>
-    await _InterstitialAdSingleton.instance.createInterstitialAd();
+/// Loads an [InterstitialAd]. Stopped after 5s.
+Future<void> createInterstitialAd() async => await _InterstitialAdSingleton.instance.createInterstitialAd();
 
-/// **onStartCallback**:
-/// - [FullScreenContentCallback.onAdShowedFullScreenContent]
+/// **[skip]**
 ///
-/// **onEndCallback**:
-/// - [FullScreenContentCallback.onAdDismissedFullScreenContent]
+/// Order of callbacks if exucuted on the same event ex. (ad shows full screen content):
 ///
-/// **onStartCallback** and then **onEndCallback** when:
-/// - [skip] == true (ex. user is premium)
-/// - ad is not loaded
-/// - last ad was before [_InterstitialAdSingleton._minIntervalBetweenAdsInSecs]
-/// - ad is not loaded
-/// - [FullScreenContentCallback.onAdFailedToShowFullScreenContent]
+/// **[onAdShowedFullScreenContent]** called when:
+/// - an ad shows full screen content [FullScreenContentCallback.onAdShowedFullScreenContent]
+///
+/// **[onStartCallback]** called when:
+/// - an ad shows full screen content [FullScreenContentCallback.onAdShowedFullScreenContent],
+/// - when ad fails to show full screen content [FullScreenContentCallback.onAdFailedToShowFullScreenContent],
+/// - [skip] == true (ex. user is premium),
+/// - ad is not loaded,
+/// - last ad was before [_InterstitialAdSingleton._minIntervalBetweenAdsInSecs],
+///
+/// **[onEndCallback]** called when:
+/// - when an ad dismisses full screen content [FullScreenContentCallback.onAdDismissedFullScreenContent],
+/// - [skip] == true (ex. user is premium),
+/// - ad is not loaded,
+/// - last ad was before [_InterstitialAdSingleton._minIntervalBetweenAdsInSecs],
 Future<void> showInterstitialAd({
   bool? skip,
   Future<void> Function()? onAdShowedFullScreenContent,
@@ -44,16 +55,17 @@ Future<void> showInterstitialAd({
     );
 
 /// Enables:
-/// - createInterstitialAd 
+/// - createInterstitialAd
 /// - showInterstitialAd
-void enableInterstitialAd() async =>
-    _InterstitialAdSingleton.instance.enable();
+/// until [disableInterstitialAd]
+void enableInterstitialAd() async => _InterstitialAdSingleton.instance.enable();
 
 /// Disables:
-/// - createInterstitialAd 
+/// - createInterstitialAd
 /// - showInterstitialAd
-void disableInterstitialAd() async =>
-    _InterstitialAdSingleton.instance.disable();
+///
+/// until [enableInterstitialAd]
+void disableInterstitialAd() async => _InterstitialAdSingleton.instance.disable();
 
 class _InterstitialAdSingleton {
   // make this a singleton class
@@ -137,9 +149,8 @@ class _InterstitialAdSingleton {
       return;
     }
 
-    final int secsAfterLastAd = _lastAdDismissTime != null
-        ? DateTime.now().difference(_lastAdDismissTime!).inSeconds
-        : 0;
+    final int secsAfterLastAd =
+        _lastAdDismissTime != null ? DateTime.now().difference(_lastAdDismissTime!).inSeconds : 0;
     if (_minIntervalBetweenAdsInSecs != null &&
         secsAfterLastAd < _minIntervalBetweenAdsInSecs! &&
         secsAfterLastAd != 0) {
@@ -208,17 +219,15 @@ class _InterstitialAdSingleton {
         const Duration(milliseconds: 200),
         () {
           tick++;
-          printY(
-            "[DEV-LOG] loading of ad step ${(tick * 0.2).toStringAsFixed(1)}s",
-          );
           if (tick >= 25) {
-            printY("[DEV-LOG] fullscreen ad disposed after 5s");
+            printY("[DEV-LOG] InterstitialAd loading timed out after after 5s.");
             _interstitialAd?.dispose();
             return;
           }
         },
       ).then((_) => (!_loaded && tick < 25) || _disabled),
     );
+    if (tick < 25) printY("[DEV-LOG] InterstitialAd loaded after ${(tick * 0.2).toStringAsFixed(1)}s");
   }
 
   Future<void> _disposeAd() async {
