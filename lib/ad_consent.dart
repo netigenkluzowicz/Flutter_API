@@ -3,13 +3,13 @@ import 'package:google_mobile_ads/google_mobile_ads.dart';
 class AdConsent {
   final params = ConsentRequestParameters();
 
-  Future<void> consentInfo({Function? onError, Function? showAd}) async {
+  Future<void> consentInfo({Function? onError, Function? action}) async {
     ConsentInformation.instance.requestConsentInfoUpdate(params, () async {
       if (await ConsentInformation.instance.isConsentFormAvailable()) {
-        loadForm(function: showAd ?? () {}, onError: onError ?? () {});
+        loadForm(showAd: action ?? () {}, onError: onError ?? () {});
       } else {
-        if (showAd != null) {
-          showAd();
+        if (action != null) {
+          action();
         }
       }
     }, (error) {
@@ -20,18 +20,18 @@ class AdConsent {
     });
   }
 
-  void loadForm({required Function function, required Function onError}) {
+  void loadForm({required Function showAd, required Function onError}) {
     ConsentForm.loadConsentForm(
       (ConsentForm consentForm) async {
         var status = await ConsentInformation.instance.getConsentStatus();
         if (status == ConsentStatus.required) {
           consentForm.show(
-            (formError) {
-              function();
+            (formError) async {
+              await showAd();
             },
           );
         } else {
-          function();
+          await showAd();
         }
       },
       (FormError formError) {

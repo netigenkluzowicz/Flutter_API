@@ -11,3 +11,4 @@ export 'package:in_app_purchase/in_app_purchase.dart';
 export 'interstitial_ad.dart';
 export 'rewarded_ad.dart';
 export 'survey_screen.dart';
+export 'ad_consent.dart';
