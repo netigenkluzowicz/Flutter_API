@@ -27,9 +27,11 @@ class AdConsent {
         if (status == ConsentStatus.required) {
           consentForm.show(
             (formError) {
-              loadForm(function: function, onError: onError);
+              function();
             },
           );
+        } else {
+          function();
         }
       },
       (FormError formError) {
