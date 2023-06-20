@@ -1,3 +1,4 @@
+import 'package:flutter/rendering.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import 'utils.dart';
@@ -43,9 +44,9 @@ Future<void> createInterstitialAd() async => await _InterstitialAdSingleton.inst
 /// - last ad was before [_InterstitialAdSingleton._minIntervalBetweenAdsInSecs],
 Future<void> showInterstitialAd({
   bool? skip,
-  Future<void> Function()? onAdShowedFullScreenContent,
-  Future<void> Function()? onStartCallback,
-  Future<void> Function()? onEndCallback,
+  VoidCallback? onAdShowedFullScreenContent,
+  VoidCallback? onStartCallback,
+  VoidCallback? onEndCallback,
 }) async =>
     await _InterstitialAdSingleton.instance.showInterstitialAd(
       skip: skip,
@@ -76,7 +77,6 @@ class _InterstitialAdSingleton {
 
   InterstitialAd? _interstitialAd;
   int _loadAttempts = 0;
-  bool _callbackRunning = false;
   DateTime? _lastAdDismissTime;
   String? _adUnitId;
   int? _minIntervalBetweenAdsInSecs;
@@ -138,14 +138,14 @@ class _InterstitialAdSingleton {
 
   Future<void> showInterstitialAd({
     bool? skip,
-    Future<void> Function()? onAdShowedFullScreenContent,
-    Future<void> Function()? onStartCallback,
-    Future<void> Function()? onEndCallback,
+    VoidCallback? onAdShowedFullScreenContent,
+    VoidCallback? onStartCallback,
+    VoidCallback? onEndCallback,
   }) async {
     if (skip == true || _disabled) {
       if (_disabled) _disposeAd();
-      await _executeCallback(onStartCallback);
-      await _executeCallback(onEndCallback);
+      _executeCallback(onStartCallback);
+      _executeCallback(onEndCallback);
       return;
     }
 
@@ -156,29 +156,29 @@ class _InterstitialAdSingleton {
         secsAfterLastAd != 0) {
       if (_interstitialAd == null) createInterstitialAd();
 
-      await _executeCallback(onStartCallback);
-      await _executeCallback(onEndCallback);
+      _executeCallback(onStartCallback);
+      _executeCallback(onEndCallback);
       return;
     }
 
     if (_interstitialAd == null) {
       printR('[DEV-LOG] Warning: attempt to show interstitial before loaded.');
-      await _executeCallback(onStartCallback);
-      await _executeCallback(onEndCallback);
+      _executeCallback(onStartCallback);
+      _executeCallback(onEndCallback);
       createInterstitialAd();
       return;
     }
 
     _interstitialAd!.fullScreenContentCallback = FullScreenContentCallback(
-      onAdShowedFullScreenContent: (InterstitialAd ad) async {
+      onAdShowedFullScreenContent: (InterstitialAd ad) {
         printR('[DEV-LOG] InterstitialAd onAdShowedFullScreenContent');
-        await _executeCallback(onAdShowedFullScreenContent);
-        await _executeCallback(onStartCallback);
+        _executeCallback(onAdShowedFullScreenContent);
+        _executeCallback(onStartCallback);
       },
-      onAdDismissedFullScreenContent: (InterstitialAd ad) async {
+      onAdDismissedFullScreenContent: (InterstitialAd ad) {
         printR('[DEV-LOG] InterstitialAd onAdDismissedFullScreenContent');
         _lastAdDismissTime = DateTime.now();
-        await _executeCallback(onEndCallback);
+        _executeCallback(onEndCallback);
         ad.dispose();
         _loaded = false;
         _interstitialAd = null;
@@ -187,14 +187,14 @@ class _InterstitialAdSingleton {
       onAdFailedToShowFullScreenContent: (
         InterstitialAd ad,
         AdError error,
-      ) async {
+      ) {
         printR(
           '[DEV-LOG] InterstitialAd onAdFailedToShowFullScreenContent: $error',
         );
         ad.dispose();
         _loaded = false;
-        await _executeCallback(onStartCallback);
-        await _executeCallback(onEndCallback);
+        _executeCallback(onStartCallback);
+        _executeCallback(onEndCallback);
         createInterstitialAd();
       },
     );
@@ -202,15 +202,13 @@ class _InterstitialAdSingleton {
     await _interstitialAd!.show();
   }
 
-  _executeCallback(Future<void> Function()? cb) async {
-    final hasCb = cb != null;
-    if (hasCb && !_callbackRunning) {
-      _callbackRunning = true;
-      await cb();
-      _callbackRunning = false;
+  _executeCallback(VoidCallback? cb) {
+    if (cb != null) {
+      cb();
     }
   }
 
+  /// Waits for ad loading for up to 5s. Then stops loading.
   Future<void> waitingOnLoad() async {
     int tick = 0;
 

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import 'utils.dart';
@@ -15,9 +16,9 @@ void initRewardedAd({required String adUnitId}) => _RewardedAdSingleton.instance
 /// - [freeReward] execute onUserEarnedReward without creating and showing RewardedAd
 /// - [onFailed] called when ad fails to show full screen content.
 Future<void> showRewardedAd({
-  required Future<void> Function() onUserEarnedReward,
+  required VoidCallback onUserEarnedReward,
   bool? freeReward,
-  Future<void> Function()? onFailed,
+  VoidCallback? onFailed,
 }) async =>
     await _RewardedAdSingleton.instance.showRewardedAd(
       onUserEarnedReward: onUserEarnedReward,
@@ -34,7 +35,6 @@ class _RewardedAdSingleton {
 
   RewardedAd? _rewardedAd;
   int _loadAttempts = 0;
-  bool _callbackRunning = false;
   String? _adUnitId;
   bool _loaded = false;
 
@@ -73,12 +73,12 @@ class _RewardedAdSingleton {
   }
 
   Future<void> showRewardedAd({
-    required Future<void> Function() onUserEarnedReward,
+    required VoidCallback onUserEarnedReward,
     bool? freeReward,
-    Future<void> Function()? onAdFailedToShowFullScreenContent,
+    VoidCallback? onAdFailedToShowFullScreenContent,
   }) async {
     if (freeReward == true) {
-      await onUserEarnedReward();
+      onUserEarnedReward();
       return;
     }
 
@@ -86,7 +86,7 @@ class _RewardedAdSingleton {
 
     if (_rewardedAd == null) {
       printR('[DEV-LOG] Warning: attempt to show RewardedAd before loaded.');
-      await _executeCallback(onAdFailedToShowFullScreenContent);
+      _executeCallback(onAdFailedToShowFullScreenContent);
       return;
     }
 
@@ -95,35 +95,33 @@ class _RewardedAdSingleton {
       onAdFailedToShowFullScreenContent: (
         RewardedAd ad,
         AdError error,
-      ) async {
+      ) {
         printR(
           '[DEV-LOG] RewardedAd onAdFailedToShowFullScreenContent: $error',
         );
         ad.dispose();
-        await _executeCallback(onAdFailedToShowFullScreenContent);
+        _executeCallback(onAdFailedToShowFullScreenContent);
       },
     );
 
     await _rewardedAd!.show(
-      onUserEarnedReward: (AdWithoutView ad, RewardItem __) async {
+      onUserEarnedReward: (AdWithoutView ad, RewardItem __) {
         printR('[DEV-LOG] RewardedAd onUserEarnedReward');
         ad.dispose();
         _loaded = false;
         _rewardedAd = null;
-        await onUserEarnedReward();
+        onUserEarnedReward();
       },
     );
   }
 
-  _executeCallback(Future<void> Function()? cb) async {
-    final hasCb = cb != null;
-    if (hasCb && !_callbackRunning) {
-      _callbackRunning = true;
-      await cb();
-      _callbackRunning = false;
+  _executeCallback(VoidCallback? cb) {
+    if (cb != null) {
+      cb();
     }
   }
 
+  /// Waits for ad loading for up to 5s. Then stops loading.
   Future<void> waitingOnLoad() async {
     int tick = 0;
 
