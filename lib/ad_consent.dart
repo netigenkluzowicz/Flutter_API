@@ -1,68 +1,128 @@
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
+/// - [consentInfo]
+/// - [resetConsent]
 class AdConsent {
-  final params = ConsentRequestParameters();
+  final _emptyParams = ConsentRequestParameters();
 
-  Future<void> consentInfo({Function? onError, Function? action}) async {
-    ConsentInformation.instance.requestConsentInfoUpdate(params, () async {
-      if (await ConsentInformation.instance.isConsentFormAvailable()) {
-        loadForm(showAd: action ?? () {}, onError: onError ?? () {});
-      } else {
-        if (action != null) {
-          action();
+  static ConsentRequestParameters params({
+    DebugGeography? debugGeography,
+    bool? tagForUnderAgeOfConsent,
+    List<String>? testIdentifiers,
+  }) =>
+      ConsentRequestParameters(
+        tagForUnderAgeOfConsent: tagForUnderAgeOfConsent,
+        consentDebugSettings: ConsentDebugSettings(
+          debugGeography: debugGeography,
+          testIdentifiers: testIdentifiers,
+        ),
+      );
+
+  /// - [action] called when consentForm is dismissed or unavailable
+  Future<void> consentInfo({
+    Function? onError,
+    Function? action,
+    ConsentRequestParameters? params,
+  }) async {
+    ConsentInformation.instance.requestConsentInfoUpdate(
+      params ?? _emptyParams,
+      () async {
+        if (await ConsentInformation.instance.isConsentFormAvailable()) {
+          _loadForm(action: action, onError: onError);
+        } else {
+          if (action != null) {
+            action();
+          }
         }
-      }
-    }, (error) {
-      if (onError != null) {
-        onError();
-      }
-      throw (error.message);
-    });
+      },
+      (error) {
+        if (onError != null) {
+          onError();
+        }
+        throw (error.message);
+      },
+    );
   }
 
-  void loadForm({required Function showAd, required Function onError}) {
+  void _loadForm({
+    Function? action,
+    Function? onError,
+  }) {
     ConsentForm.loadConsentForm(
       (ConsentForm consentForm) async {
         var status = await ConsentInformation.instance.getConsentStatus();
         if (status == ConsentStatus.required) {
           consentForm.show(
             (formError) async {
-              await showAd();
+              if (action != null) {
+                await action();
+              }
             },
           );
-        } else {
-          await showAd();
+        } else if (action != null) {
+          await action();
         }
       },
       (FormError formError) {
-        onError();
+        if (onError != null) {
+          onError();
+        }
 
         throw (formError.message);
       },
     );
   }
 
-  void resetConsent() {
-    ConsentInformation.instance.requestConsentInfoUpdate(params, () async {
-      if (await ConsentInformation.instance.isConsentFormAvailable()) {
-        loadFormAgain();
-      }
-    }, (error) {
-      throw (error.message);
-    });
+  /// - [action] called when consentForm is dismissed or unavailable,
+  /// could be used to pop screen that was pushed during waiting on consentForm
+  /// (consentForm isn't showed immediately after calling [resetConsent]);
+  void resetConsent({
+    ConsentRequestParameters? params,
+    Function? action,
+    Function? onError,
+  }) {
+    ConsentInformation.instance.requestConsentInfoUpdate(
+      params ?? _emptyParams,
+      () async {
+        if (await ConsentInformation.instance.isConsentFormAvailable()) {
+          _loadFormAgain(action: action, onError: onError);
+        } else if (action != null) {
+          action();
+        }
+      },
+      (error) {
+        if (onError != null) {
+          onError();
+        }
+        throw (error.message);
+      },
+    );
   }
 
-  void loadFormAgain() {
+  void _loadFormAgain({
+    Function? action,
+    Function? onError,
+  }) {
     ConsentForm.loadConsentForm(
       (ConsentForm consentForm) async {
         var status = await ConsentInformation.instance.getConsentStatus();
         if (status == ConsentStatus.notRequired || status == ConsentStatus.obtained) {
           consentForm.show(
-            (formError) {},
+            (formError) {
+              if (action != null) {
+                action();
+              }
+            },
           );
+        } else if (action != null) {
+          action();
         }
       },
-      (FormError formError) {},
+      (FormError formError) {
+        if (onError != null) {
+          onError();
+        }
+      },
     );
   }
 }
