@@ -7,7 +7,9 @@ const int _maxFailedLoadAttempts = 3;
 
 /// Must be used once before any [showRewardedAd].
 /// Sets [adUnitId] for RewardedAd.
-void initRewardedAd({required String adUnitId}) => _RewardedAdSingleton.instance.init(adUnitId: adUnitId);
+/// - [loadingTicks] - times 200ms is the maximum ad loading time; default 25 (5 seconds); specifies how many times to check if the ad has been loaded before aborting
+void initRewardedAd({required String adUnitId, int? loadingTicks}) =>
+    _RewardedAdSingleton.instance.init(adUnitId: adUnitId, loadingTicks: loadingTicks);
 
 /// Loads and shows RewardedAd. IMPORTANT: New RewardedAd isn't loaded after closing previous.
 /// Loading is stopped after 5s.
@@ -37,9 +39,11 @@ class _RewardedAdSingleton {
   int _loadAttempts = 0;
   String? _adUnitId;
   bool _loaded = false;
+  int _loadingTicks = 25;
 
-  void init({required String adUnitId}) {
+  void init({required String adUnitId, int? loadingTicks}) {
     _adUnitId = adUnitId;
+    if (loadingTicks != null) _loadingTicks = loadingTicks;
   }
 
   Future<void> _createRewardedAd() async {
@@ -130,14 +134,14 @@ class _RewardedAdSingleton {
         const Duration(milliseconds: 200),
         () {
           tick++;
-          if (tick >= 25) {
-            printY("[DEV-LOG] RewardedAd loading timed out after after 5s.");
+          if (tick >= _loadingTicks) {
+            printY("[DEV-LOG] RewardedAd loading timed out after ${(_loadingTicks * 0.2).toStringAsFixed(1)}s.");
             _rewardedAd?.dispose();
             return;
           }
         },
-      ).then((_) => !_loaded && tick < 25),
+      ).then((_) => !_loaded && tick < _loadingTicks),
     );
-    if (tick < 25) printY("[DEV-LOG] RewardedAd loaded after ${(tick * 0.2).toStringAsFixed(1)}s");
+    if (tick < _loadingTicks) printY("[DEV-LOG] RewardedAd loaded after ${(tick * 0.2).toStringAsFixed(1)}s");
   }
 }

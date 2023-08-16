@@ -9,15 +9,18 @@ const int _maxFailedLoadAttempts = 3;
 /// - [adUnitId] - sets adUnitId for all [InterstitialAd] requests
 /// - [minIntervalBetweenAdsInSecs] - sets minimal time interval between [InterstitialAd] requests, requests before this interval will be skipped
 /// - [createAd] - loads [InterstitialAd]
+/// - [loadingTicks] - times 200ms is the maximum ad loading time; default 25 (5 seconds); specifies how many times to check if the ad has been loaded before aborting
 Future<void> initInterstitialAd({
   required String adUnitId,
   int? minIntervalBetweenAdsInSecs,
   bool createAd = false,
+  int? loadingTicks,
 }) async =>
     await _InterstitialAdSingleton.instance.init(
       adUnitId: adUnitId,
       minIntervalBetweenAdsInSecs: minIntervalBetweenAdsInSecs,
       createAd: createAd,
+      loadingTicks: loadingTicks,
     );
 
 /// Loads an [InterstitialAd]. Stopped after 5s.
@@ -82,6 +85,7 @@ class _InterstitialAdSingleton {
   int? _minIntervalBetweenAdsInSecs;
   bool _loaded = false;
   bool _disabled = false;
+  int _loadingTicks = 25;
 
   void disable() => _disabled = true;
   void enable() => _disabled = false;
@@ -90,9 +94,11 @@ class _InterstitialAdSingleton {
     required String adUnitId,
     int? minIntervalBetweenAdsInSecs,
     bool createAd = false,
+    int? loadingTicks,
   }) async {
     _adUnitId = adUnitId;
     _minIntervalBetweenAdsInSecs = minIntervalBetweenAdsInSecs;
+    if (loadingTicks != null) _loadingTicks = loadingTicks;
     if (createAd == true) {
       await createInterstitialAd();
     } else {
@@ -217,15 +223,15 @@ class _InterstitialAdSingleton {
         const Duration(milliseconds: 200),
         () {
           tick++;
-          if (tick >= 25) {
-            printY("[DEV-LOG] InterstitialAd loading timed out after after 5s.");
+          if (tick >= _loadingTicks) {
+            printY("[DEV-LOG] InterstitialAd loading timed out after ${(_loadingTicks * 0.2).toStringAsFixed(1)}s.");
             _interstitialAd?.dispose();
             return;
           }
         },
-      ).then((_) => (!_loaded && tick < 25) || _disabled),
+      ).then((_) => (!_loaded && tick < _loadingTicks) || _disabled),
     );
-    if (tick < 25) printY("[DEV-LOG] InterstitialAd loaded after ${(tick * 0.2).toStringAsFixed(1)}s");
+    if (tick < _loadingTicks) printY("[DEV-LOG] InterstitialAd loaded after ${(tick * 0.2).toStringAsFixed(1)}s");
   }
 
   Future<void> _disposeAd() async {
