@@ -175,7 +175,7 @@ class _InterstitialAdSingleton {
       return;
     }
 
-    _interstitialAd!.fullScreenContentCallback = FullScreenContentCallback(
+    _interstitialAd?.fullScreenContentCallback = FullScreenContentCallback(
       onAdShowedFullScreenContent: (InterstitialAd ad) {
         printR('[DEV-LOG] InterstitialAd onAdShowedFullScreenContent');
         _executeCallback(onAdShowedFullScreenContent);
@@ -204,8 +204,8 @@ class _InterstitialAdSingleton {
         createInterstitialAd();
       },
     );
-    await _interstitialAd!.setImmersiveMode(true);
-    await _interstitialAd!.show();
+    await _interstitialAd?.setImmersiveMode(true);
+    await _interstitialAd?.show();
   }
 
   _executeCallback(VoidCallback? cb) {

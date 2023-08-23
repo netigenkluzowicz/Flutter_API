@@ -94,7 +94,7 @@ class _RewardedAdSingleton {
       return;
     }
 
-    await _rewardedAd!.setImmersiveMode(true);
+    await _rewardedAd?.setImmersiveMode(true);
     _rewardedAd!.fullScreenContentCallback = FullScreenContentCallback(
       onAdFailedToShowFullScreenContent: (
         RewardedAd ad,
@@ -108,7 +108,7 @@ class _RewardedAdSingleton {
       },
     );
 
-    await _rewardedAd!.show(
+    await _rewardedAd?.show(
       onUserEarnedReward: (AdWithoutView ad, RewardItem __) {
         printR('[DEV-LOG] RewardedAd onUserEarnedReward');
         ad.dispose();
