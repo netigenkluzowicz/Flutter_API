@@ -1,5 +1,7 @@
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
+import 'utils.dart';
+
 /// - [consentInfo]
 /// - [resetConsent]
 class AdConsent {
@@ -35,11 +37,13 @@ class AdConsent {
           }
         }
       },
-      (error) {
+      (FormError formError) {
+        printR(
+          "[DEV-LOG] flutter_api AdConsent().consentInfo errorCode:${formError.errorCode} message:${formError.message}",
+        );
         if (onError != null) {
           onError();
         }
-        throw (error.message);
       },
     );
   }
@@ -64,11 +68,12 @@ class AdConsent {
         }
       },
       (FormError formError) {
+        printR(
+          "[DEV-LOG] flutter_api AdConsent()._loadForm errorCode:${formError.errorCode} message:${formError.message}",
+        );
         if (onError != null) {
           onError();
         }
-
-        throw (formError.message);
       },
     );
   }
@@ -90,11 +95,13 @@ class AdConsent {
           action();
         }
       },
-      (error) {
+      (FormError formError) {
+        printR(
+          "[DEV-LOG] flutter_api AdConsent().resetConsent errorCode:${formError.errorCode} message:${formError.message}",
+        );
         if (onError != null) {
           onError();
         }
-        throw (error.message);
       },
     );
   }
@@ -119,6 +126,9 @@ class AdConsent {
         }
       },
       (FormError formError) {
+        printR(
+          "[DEV-LOG] flutter_api AdConsent()._loadFormAgain errorCode:${formError.errorCode} message:${formError.message}",
+        );
         if (onError != null) {
           onError();
         }

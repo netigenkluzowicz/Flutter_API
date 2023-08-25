@@ -95,7 +95,7 @@ class _RewardedAdSingleton {
     }
 
     await _rewardedAd?.setImmersiveMode(true);
-    _rewardedAd!.fullScreenContentCallback = FullScreenContentCallback(
+    _rewardedAd?.fullScreenContentCallback = FullScreenContentCallback(
       onAdFailedToShowFullScreenContent: (
         RewardedAd ad,
         AdError error,
