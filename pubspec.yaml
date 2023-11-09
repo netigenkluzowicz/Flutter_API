@@ -10,9 +10,9 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  google_mobile_ads: ^3.0.0
-  in_app_purchase: ^3.1.5
-  in_app_purchase_storekit: ^0.3.6+4
+  google_mobile_ads: ^3.1.0
+  in_app_purchase: ^3.1.11
+  in_app_purchase_storekit: ^0.3.6+7
   package_info: ^2.0.2
   webview_flutter: ^4.0.4
   webview_flutter_android: ^3.7.0
