@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:package_info/package_info.dart';
 import 'package:webview_flutter/webview_flutter.dart';
@@ -48,8 +49,7 @@ class _SurveyScreenState extends State<SurveyScreen> {
       params = const PlatformWebViewControllerCreationParams();
     }
 
-    final WebViewController controller =
-        WebViewController.fromPlatformCreationParams(params);
+    final WebViewController controller = WebViewController.fromPlatformCreationParams(params);
 
     final PackageInfo packageInfo = await PackageInfo.fromPlatform();
     controller
@@ -80,8 +80,7 @@ class _SurveyScreenState extends State<SurveyScreen> {
         'SURVEY_CHANNEL',
         onMessageReceived: (JavaScriptMessage message) {
           widget.onMessageReceived;
-          if (message.message.contains('QUIT_YES') ||
-              message.message.contains('EXIT')) {
+          if (message.message.contains('QUIT_YES') || message.message.contains('EXIT')) {
             Navigator.of(context).pop();
           }
         },
@@ -94,8 +93,7 @@ class _SurveyScreenState extends State<SurveyScreen> {
 
     if (controller.platform is AndroidWebViewController) {
       AndroidWebViewController.enableDebugging(true);
-      (controller.platform as AndroidWebViewController)
-          .setMediaPlaybackRequiresUserGesture(false);
+      (controller.platform as AndroidWebViewController).setMediaPlaybackRequiresUserGesture(false);
     }
 
     setState(() {
@@ -113,9 +111,9 @@ class _SurveyScreenState extends State<SurveyScreen> {
                 controller: _controller!,
               )
             : Center(
-                child: Platform.isIOS
-                    ? const CupertinoActivityIndicator()
-                    : const CircularProgressIndicator(),
+                child: kIsWeb || Platform.isAndroid
+                    ? const CircularProgressIndicator()
+                    : const CupertinoActivityIndicator(),
               ),
       ),
     );
