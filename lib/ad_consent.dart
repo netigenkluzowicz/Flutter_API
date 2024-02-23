@@ -99,7 +99,7 @@ class AdConsent {
     );
   }
 
-  /// - [action] called when consentForm is dismissed or unavailable,
+  /// - [action] called when consentForm is dismissed, unavailable or after openAppSettings on iOS,
   /// could be used to pop screen that was pushed during waiting on consentForm
   /// (consentForm isn't showed immediately after calling [resetConsent]);
   void resetConsent({
@@ -116,6 +116,7 @@ class AdConsent {
           onError: onError,
         );
       } else if (status == TrackingStatus.denied) {
+        if (action != null) action();
         AppSettings.openAppSettings();
       }
     });
