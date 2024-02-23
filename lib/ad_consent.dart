@@ -1,3 +1,5 @@
+import 'package:app_settings/app_settings.dart';
+import 'package:app_tracking_transparency/app_tracking_transparency.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import 'utils.dart';
@@ -20,8 +22,27 @@ class AdConsent {
         ),
       );
 
-  /// - [action] called when consentForm is dismissed or unavailable
+  /// - [action] called when consentForm is closed or unavailable (pass completer.complete())
+  /// - [onError] called on Consent error or tracking status is supported and not authorized
   Future<void> consentInfo({
+    Function? onError,
+    Function? action,
+    ConsentRequestParameters? params,
+  }) async {
+    final TrackingStatus status = await AppTrackingTransparency.requestTrackingAuthorization();
+    printY("[DEV-LOG] AdConsent trackingStatus:$status");
+    if (status == TrackingStatus.authorized || status == TrackingStatus.notSupported) {
+      await _consentInfo(
+        onError: onError,
+        action: action,
+        params: params,
+      );
+    } else if (onError != null) {
+      onError();
+    }
+  }
+
+  Future<void> _consentInfo({
     Function? onError,
     Function? action,
     ConsentRequestParameters? params,
@@ -82,6 +103,25 @@ class AdConsent {
   /// could be used to pop screen that was pushed during waiting on consentForm
   /// (consentForm isn't showed immediately after calling [resetConsent]);
   void resetConsent({
+    ConsentRequestParameters? params,
+    Function? action,
+    Function? onError,
+  }) {
+    AppTrackingTransparency.requestTrackingAuthorization().then((TrackingStatus status) {
+      printY("[DEV-LOG] AdConsent trackingStatus:$status");
+      if (status == TrackingStatus.authorized || status == TrackingStatus.notSupported) {
+        _resetConsent(
+          params: params,
+          action: action,
+          onError: onError,
+        );
+      } else if (status == TrackingStatus.denied) {
+        AppSettings.openAppSettings();
+      }
+    });
+  }
+
+  void _resetConsent({
     ConsentRequestParameters? params,
     Function? action,
     Function? onError,

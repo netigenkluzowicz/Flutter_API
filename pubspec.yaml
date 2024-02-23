@@ -1,13 +1,16 @@
 name: flutter_api
 description: Flutter API for app development.
-version: 0.1.2
-homepage: 
+version: 3.19.0-1
+homepage:
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
-  flutter: ">=3.10.0"
+  flutter: '>=3.10.0'
 
 dependencies:
+  # app_settings must be 4.2.0 for minimum deployment target on iOS
+  app_settings: 4.2.0
+  app_tracking_transparency: ^2.0.4
   flutter:
     sdk: flutter
   google_mobile_ads: ^4.0.0
