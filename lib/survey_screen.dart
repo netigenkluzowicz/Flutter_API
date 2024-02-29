@@ -17,11 +17,22 @@ class SurveyScreen extends StatefulWidget {
   final String locale;
   final Function? onMessageReceived;
 
+  /// [PopScope.canPop]
+  final bool canPop;
+
+  /// [PopScope.onPopInvoked] with BuildContext
+  final void Function(BuildContext context, bool didPop)? onPopInvoked;
+
+  final void Function(BuildContext context)? initStateAction;
+
   const SurveyScreen({
     super.key,
     required this.serverUrl,
     required this.locale,
     this.onMessageReceived,
+    this.canPop = true,
+    this.onPopInvoked,
+    this.initStateAction,
   });
 
   @override
@@ -34,6 +45,12 @@ class _SurveyScreenState extends State<SurveyScreen> {
   @override
   void initState() {
     super.initState();
+
+    if (widget.initStateAction != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        widget.initStateAction!(context);
+      });
+    }
 
     initController();
   }
@@ -103,18 +120,26 @@ class _SurveyScreenState extends State<SurveyScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: SafeArea(
-        bottom: false,
-        child: (_controller != null)
-            ? WebViewWidget(
-                controller: _controller!,
-              )
-            : Center(
-                child: kIsWeb || Platform.isAndroid
-                    ? const CircularProgressIndicator()
-                    : const CupertinoActivityIndicator(),
-              ),
+    return PopScope(
+      canPop: widget.canPop,
+      onPopInvoked: (didPop) {
+        if (widget.onPopInvoked != null) {
+          widget.onPopInvoked!(context, didPop);
+        }
+      },
+      child: Scaffold(
+        body: SafeArea(
+          bottom: false,
+          child: (_controller != null)
+              ? WebViewWidget(
+                  controller: _controller!,
+                )
+              : Center(
+                  child: kIsWeb || Platform.isAndroid
+                      ? const CircularProgressIndicator()
+                      : const CupertinoActivityIndicator(),
+                ),
+        ),
       ),
     );
   }
