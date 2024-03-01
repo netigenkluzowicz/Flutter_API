@@ -3,13 +3,13 @@ import 'dart:io';
 
 import 'package:async/async.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_api/utils.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import 'ad_consent.dart';
 import 'interstitial_ad.dart';
 import 'payment_service.dart';
 import 'rewarded_ad.dart';
+import 'utils.dart';
 
 /// - [mainInitilize] - jobs during native splash (should be overridden),
 ///   - [initAdsParameters]

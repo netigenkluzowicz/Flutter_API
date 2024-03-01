@@ -22,57 +22,67 @@ void printC(Object? object) => _print(object.toString(), "C");
 void printW(Object? object) => _print(object.toString(), "W");
 
 void _print(String text, String color) {
+  if (kReleaseMode) return;
   if (kIsWeb || Platform.isAndroid) {
     switch (color) {
       case 'R':
-        debugPrint("\x1B[31m$text\x1B[0m");
+        _printLines("\x1B[31m", text, "\x1B[0m");
         break;
       case 'G':
-        debugPrint("\x1B[32m$text\x1B[0m");
+        _printLines("\x1B[32m", text, "\x1B[0m");
         break;
       case 'Y':
-        debugPrint("\x1B[33m$text\x1B[0m");
+        _printLines("\x1B[33m", text, "\x1B[0m");
         break;
       case 'B':
-        debugPrint("\x1B[34m$text\x1B[0m");
+        _printLines("\x1B[34m", text, "\x1B[0m");
         break;
       case 'M':
-        debugPrint("\x1B[35m$text\x1B[0m");
+        _printLines("\x1B[35m", text, "\x1B[0m");
         break;
       case 'C':
-        debugPrint("\x1B[36m$text\x1B[0m");
+        _printLines("\x1B[36m", text, "\x1B[0m");
         break;
       case 'W':
-        debugPrint("\x1B[37m$text\x1B[0m");
+        _printLines("\x1B[37m", text, "\x1B[0m");
         break;
       default:
-        debugPrint(text);
+        _printLines("", text, "");
     }
   } else {
     switch (color) {
       case 'R':
-        debugPrint("🔴 $text");
+        _printLines("🔴 ", text, "");
         break;
       case 'G':
-        debugPrint("🟢 $text");
+        _printLines("🟢 ", text, "");
         break;
       case 'Y':
-        debugPrint("🟡 $text");
+        _printLines("🟡 ", text, "");
         break;
       case 'B':
-        debugPrint("🔵 $text");
+        _printLines("🔵 ", text, "");
         break;
       case 'M':
-        debugPrint("🟥 $text");
+        _printLines("🟥 ", text, "");
         break;
       case 'C':
-        debugPrint("🟨 $text");
+        _printLines("🟨 ", text, "");
         break;
       case 'W':
-        debugPrint("⚪ $text");
+        _printLines("⚪ ", text, "");
         break;
       default:
-        debugPrint(text);
+        _printLines("", text, "");
     }
+  }
+}
+
+void _printLines(String start, String text, String end) {
+  if (kDebugMode || kProfileMode) {
+    text.split("\n").forEach((element) {
+      // ignore: avoid_print
+      print("$start[dev]$element$end");
+    });
   }
 }
