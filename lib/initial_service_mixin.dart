@@ -15,7 +15,7 @@ import 'utils.dart';
 ///   - [initAdsParameters]
 ///   - [initPurchases]
 /// - [afterSplashInitilize] - jobs after native splash (should be overridden),
-///   - [showConsentAndAd]
+///   - [showConsent]
 ///   - [initDoneStream]
 ///   - [initDone]
 mixin class InitialServiceMixin {
@@ -90,9 +90,9 @@ mixin class InitialServiceMixin {
   /// - [AdConsent.consentInfo]
   /// - [createInterstitialAd]
   /// - [showInterstitialAd]
-  Future<void> showConsentAndAd({
+  Future<void> showConsent({
     bool skipConsentAndAd = false,
-    bool showAdOnStart = false,
+    bool showAdAfterConsent = false,
     required List<String>? testDeviceIds,
   }) async {
     if (!skipConsentAndAd) {
@@ -100,13 +100,13 @@ mixin class InitialServiceMixin {
         final int start = DateTime.now().millisecondsSinceEpoch;
         await _waitForConsent(testDeviceIds: testDeviceIds);
         final int afterConsent = DateTime.now().millisecondsSinceEpoch;
-        if (showAdOnStart) {
+        if (showAdAfterConsent) {
           await createInterstitialAd();
         } else {
           createInterstitialAd();
         }
         final int afterCreate = DateTime.now().millisecondsSinceEpoch;
-        if (showAdOnStart) {
+        if (showAdAfterConsent) {
           await _waitForAdStart();
         }
         final int afterShow = DateTime.now().millisecondsSinceEpoch;
@@ -189,7 +189,7 @@ mixin class InitialServiceMixin {
   ///
   /// Should be overwritten to make initializations like:
   /// - [initPurchases]
-  /// - [initAdsParameters] (consent and optional ad must be shown after splash [afterSplashInitilize] by [showConsentAndAd])
+  /// - [initAdsParameters] (consent and optional ad must be shown after splash [afterSplashInitilize] by [showConsent])
   /// - database,
   /// - screen orientation,
   /// - firebase features,
@@ -216,10 +216,11 @@ mixin class InitialServiceMixin {
     await futureGroup.future;
   }
 
-  /// Execute it after splash dropping. Should be overwritten and contain [showConsentAndAd].
+  /// Execute it after splash dropping. Should be overwritten and contain [showConsent].
   Future<void> afterSplashInitilize() async {
-    await showConsentAndAd(
+    await showConsent(
       skipConsentAndAd: false,
+      showAdAfterConsent: false,
       testDeviceIds: [],
     );
     initDone();

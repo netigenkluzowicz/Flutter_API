@@ -130,6 +130,8 @@ class AdConsent {
     ConsentInformation.instance.requestConsentInfoUpdate(
       params ?? _emptyParams,
       () async {
+        final bool available = await ConsentInformation.instance.isConsentFormAvailable();
+        printY("[DEV-LOG] flutter_api isConsentFormAvailable:$available");
         if (await ConsentInformation.instance.isConsentFormAvailable()) {
           _loadFormAgain(action: action, onError: onError);
         } else if (action != null) {
@@ -153,8 +155,13 @@ class AdConsent {
   }) {
     ConsentForm.loadConsentForm(
       (ConsentForm consentForm) async {
-        var status = await ConsentInformation.instance.getConsentStatus();
-        if (status == ConsentStatus.notRequired || status == ConsentStatus.obtained) {
+        final ConsentStatus status = await ConsentInformation.instance.getConsentStatus();
+        printY("[DEV-LOG] flutter_api $status");
+        if ([
+          ConsentStatus.notRequired,
+          ConsentStatus.required,
+          ConsentStatus.obtained,
+        ].contains(status)) {
           consentForm.show(
             (formError) {
               if (action != null) {
