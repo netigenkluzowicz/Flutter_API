@@ -50,7 +50,9 @@ class AdConsent {
     ConsentInformation.instance.requestConsentInfoUpdate(
       params ?? _emptyParams,
       () async {
-        if (await ConsentInformation.instance.isConsentFormAvailable()) {
+        final bool available = await ConsentInformation.instance.isConsentFormAvailable();
+        printY("[DEV-LOG] ConsentFormAvailable: $available");
+        if (available) {
           _loadForm(action: action, onError: onError);
         } else {
           if (action != null) {
