@@ -1,6 +1,6 @@
 name: flutter_api
 description: Flutter API for app development.
-version: 3.19.5+1
+version: 3.19.5+2
 homepage:
 
 environment:
@@ -14,9 +14,9 @@ dependencies:
   flutter:
     sdk: flutter
   google_mobile_ads: ^5.0.0
-  in_app_purchase: ^3.1.13
-  in_app_purchase_storekit: ^0.3.13
-  package_info_plus: ^7.0.0
+  in_app_purchase: ^3.2.0
+  in_app_purchase_storekit: ^0.3.14
+  package_info_plus: ^8.0.0
   webview_flutter: ^4.7.0
   webview_flutter_android: ^3.15.0
   webview_flutter_wkwebview: ^3.12.0
