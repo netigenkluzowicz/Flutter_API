@@ -1,6 +1,6 @@
 name: flutter_api
 description: Flutter API for app development.
-version: 3.19.5+2
+version: 3.19.5+4
 homepage:
 
 environment:
@@ -9,18 +9,19 @@ environment:
 
 dependencies:
   app_settings: ^5.1.1
-  app_tracking_transparency: ^2.0.4
+  app_tracking_transparency: ^2.0.5
   async:
   flutter:
     sdk: flutter
-  google_mobile_ads: ^5.0.0
+  google_mobile_ads: ^5.1.0
   in_app_purchase: ^3.2.0
   in_app_purchase_storekit: ^0.3.14
-  # package_info_plus >=6.0.0 <8.0.0 to be compatible with wakelock_plus ^1.2.4
-  package_info_plus: ^7.0.0
-  webview_flutter: ^4.7.0
-  webview_flutter_android: ^3.15.0
-  webview_flutter_wkwebview: ^3.12.0
+  # package_info_plus >=6.0.0 <8.0.0 to be compatible with wakelock_plus 1.2.4
+  # - fixed in wakelock_plus 1.2.5
+  package_info_plus: ^8.0.0
+  webview_flutter: ^4.8.0
+  webview_flutter_android: ^3.16.0
+  webview_flutter_wkwebview: ^3.13.0
 
 dev_dependencies:
   flutter_test:
