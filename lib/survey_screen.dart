@@ -15,7 +15,7 @@ class SurveyScreen extends StatefulWidget {
 
   final String serverUrl;
   final String locale;
-  final Function? onMessageReceived;
+  final void Function(String)? onMessageReceived;
 
   /// [PopScope.canPop]
   final bool canPop;
@@ -96,7 +96,9 @@ class _SurveyScreenState extends State<SurveyScreen> {
       ..addJavaScriptChannel(
         'SURVEY_CHANNEL',
         onMessageReceived: (JavaScriptMessage message) {
-          widget.onMessageReceived;
+          if (widget.onMessageReceived != null) {
+            widget.onMessageReceived!(message.message);
+          }
           if (message.message.contains('QUIT_YES') || message.message.contains('EXIT')) {
             Navigator.of(context).pop();
           }
