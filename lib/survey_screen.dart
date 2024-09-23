@@ -20,7 +20,7 @@ class SurveyScreen extends StatefulWidget {
   /// [PopScope.canPop]
   final bool canPop;
 
-  /// [PopScope.onPopInvoked] with BuildContext
+  /// [PopScope.onPopInvokedWithResult] with BuildContext
   final void Function(BuildContext context, bool didPop)? onPopInvoked;
 
   final void Function(BuildContext context)? initStateAction;
@@ -124,7 +124,7 @@ class _SurveyScreenState extends State<SurveyScreen> {
   Widget build(BuildContext context) {
     return PopScope(
       canPop: widget.canPop,
-      onPopInvoked: (didPop) {
+      onPopInvokedWithResult: (didPop, result) {
         if (widget.onPopInvoked != null) {
           widget.onPopInvoked!(context, didPop);
         }
