@@ -40,7 +40,9 @@ class _DonateWebviewState extends State<DonateWebView> {
   void initState() {
     super.initState();
 
-    initController();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      initController();
+    });
   }
 
   Future<void> initController() async {

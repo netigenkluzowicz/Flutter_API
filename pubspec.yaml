@@ -1,6 +1,6 @@
 name: flutter_api
 description: Flutter API for app development.
-version: 3.24.3+0
+version: 3.24.3+1
 homepage:
 
 environment:
@@ -8,26 +8,26 @@ environment:
   flutter: '>=3.24.3'
 
 dependencies:
-  app_settings: ^5.1.1
+  app_settings: ^5.2.0
   app_tracking_transparency: ^2.0.6
   async:
   flutter:
     sdk: flutter
-  google_mobile_ads: ^5.1.0
-  in_app_purchase: ^3.2.0
+  google_mobile_ads: ^5.3.1
+  in_app_purchase: ^3.2.1
   in_app_purchase_storekit: ^0.3.14
   # package_info_plus >=6.0.0 <8.0.0 to be compatible with wakelock_plus 1.2.4
   # - fixed in wakelock_plus 1.2.5
-  package_info_plus: ^8.0.2
+  package_info_plus: ^8.3.0
   webview_flutter: ^4.9.0
-  webview_flutter_android: ^3.16.0
-  webview_flutter_wkwebview: ^3.15.0
+  webview_flutter_android: ^4.0.0
+  webview_flutter_wkwebview: ^3.18.4
   win32: ^5.5.4 # fix error: win32 Error: Type 'UnmodifiableUint8ListView'
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^4.0.0
+  flutter_lints: ^5.0.0
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

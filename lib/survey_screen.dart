@@ -43,16 +43,21 @@ class _SurveyScreenState extends State<SurveyScreen> {
   WebViewController? _controller;
 
   @override
+  dispose() {
+    _controller?.clearCache();
+    super.dispose();
+  }
+
+  @override
   void initState() {
     super.initState();
 
-    if (widget.initStateAction != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (widget.initStateAction != null) {
         widget.initStateAction!(context);
-      });
-    }
-
-    initController();
+      }
+      initController();
+    });
   }
 
   Future<void> initController() async {
@@ -89,6 +94,16 @@ class _SurveyScreenState extends State<SurveyScreen> {
           onWebResourceError: (WebResourceError error) {
             printR(
               "[DEV-LOG] onWebResourceError code:${error.errorCode} mainFrame:${error.isForMainFrame} type:${error.errorType} desc:${error.description}",
+            );
+          },
+          onHttpAuthRequest: (request) {
+            printR(
+              "[DEV-LOG] onHttpAuthRequest host:${request.host}",
+            );
+          },
+          onHttpError: (error) {
+            printR(
+              "[DEV-LOG] onHttpError statusCode:${error.response?.statusCode} ${error.response?.uri}",
             );
           },
         ),
