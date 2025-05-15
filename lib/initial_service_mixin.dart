@@ -175,6 +175,7 @@ mixin class InitialServiceMixin {
         await PaymentService.instance.restorePurchases();
         time3 = DateTime.now().millisecondsSinceEpoch;
         await PaymentService.instance.waitForPurchaseRestoring();
+        PaymentService.instance.completePendingPurchases();
         time4 = DateTime.now().millisecondsSinceEpoch;
       } catch (e) {
         printR("[DEV-LOG] InitialService._initPurchases error: $e");

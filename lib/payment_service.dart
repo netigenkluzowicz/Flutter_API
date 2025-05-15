@@ -1,6 +1,9 @@
 import 'dart:async';
+import 'dart:convert' show jsonDecode, jsonEncode;
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:in_app_purchase_storekit/in_app_purchase_storekit.dart';
 import 'package:in_app_purchase_storekit/store_kit_wrappers.dart';
@@ -132,18 +135,50 @@ class PaymentService {
 
   final _inAppPurchase = InAppPurchase.instance;
 
-  Future<void> _listenToPurchaseUpdated(List<PurchaseDetails> purchaseDetailsList) async {
-    for (PurchaseDetails purchaseDetails in purchaseDetailsList) {
-      printY("[DEV-LOG] [PaymentService] ${purchaseDetails.productID} ${purchaseDetails.status}");
+  List<PurchaseDetails> _purchaseDetailsList = [];
 
-      if (purchaseDetails.status == PurchaseStatus.pending) {
+  Future<void> completePendingPurchases() async {
+    for (PurchaseDetails p in _purchaseDetailsList) {
+      if (p.pendingCompletePurchase) {
+        if (kDebugMode) {
+          printY(
+            "[DEV-LOG] [PaymentService] pendingCompletePurchase for ${DateTime.fromMillisecondsSinceEpoch(int.parse(p.transactionDate ?? "0")).toIso8601String()}",
+          );
+        }
+        await _inAppPurchase.completePurchase(p);
+      }
+    }
+  }
+
+  Future<void> _listenToPurchaseUpdated(List<PurchaseDetails> purchaseDetailsList) async {
+    _purchaseDetailsList = purchaseDetailsList;
+    for (PurchaseDetails p in purchaseDetailsList) {
+      if (p.status == PurchaseStatus.pending) {
         _setPending();
-      } else {
-        if (purchaseDetails.status == PurchaseStatus.error) {
-          _isBuying = false;
-          _handleError(purchaseDetails.error);
-        } else if (purchaseDetails.status == PurchaseStatus.purchased ||
-            purchaseDetails.status == PurchaseStatus.restored) {
+      }
+    }
+    if (purchaseDetailsList.isEmpty) return;
+    if (purchaseDetailsList.length > 1) {
+      purchaseDetailsList.sort((a, b) {
+        int dateA = int.tryParse(a.transactionDate ?? '') ?? 0;
+        int dateB = int.tryParse(b.transactionDate ?? '') ?? 0;
+        return dateB.compareTo(dateA);
+      });
+    }
+    if (kDebugMode) {
+      printY(
+        "[DEV-LOG] [PaymentService] ${purchaseDetailsList.map((x) => DateTime.fromMillisecondsSinceEpoch(int.parse(x.transactionDate ?? "0")).toIso8601String())}",
+      );
+    }
+    final PurchaseDetails purchaseDetails = _getPurchasedData(purchaseDetailsList) ?? purchaseDetailsList.first;
+
+    if (purchaseDetails.status != PurchaseStatus.pending) {
+      if (purchaseDetails.status == PurchaseStatus.error) {
+        _isBuying = false;
+        _handleError(purchaseDetails.error);
+      } else if (purchaseDetails.status == PurchaseStatus.purchased ||
+          purchaseDetails.status == PurchaseStatus.restored) {
+        if (!boughtProductIds.contains(purchaseDetails.productID)) {
           final bool valid = await _verifyPurchase(purchaseDetails);
           _isBuying = false;
           if (valid) {
@@ -152,19 +187,32 @@ class PaymentService {
             _handleInvalidPurchase(purchaseDetails);
             return;
           }
-        } else if (purchaseDetails.status == PurchaseStatus.canceled) {
+        } else {
           _isBuying = false;
-          _paymentStatusStreamController.add(PaymentStatus.canceled);
+          _paymentStatusStreamController.add(PaymentStatus.completed);
         }
-        if (purchaseDetails.pendingCompletePurchase) {
-          printY("[DEV-LOG] [PaymentService] pendingCompletePurchase START ${purchaseDetails.productID}");
-          final start = DateTime.now().millisecondsSinceEpoch;
-          await _inAppPurchase.completePurchase(purchaseDetails);
-          final end = DateTime.now().millisecondsSinceEpoch;
-          printY("[DEV-LOG] [PaymentService] pendingCompletePurchase COMPLETED in  ${end - start}ms");
-        }
+      } else if (purchaseDetails.status == PurchaseStatus.canceled) {
+        _isBuying = false;
+        _paymentStatusStreamController.add(PaymentStatus.canceled);
+      }
+      if (purchaseDetails.pendingCompletePurchase) {
+        printY("[DEV-LOG] [PaymentService] pendingCompletePurchase START ${purchaseDetails.productID}");
+        final start = DateTime.now().millisecondsSinceEpoch;
+        await _inAppPurchase.completePurchase(purchaseDetails);
+        final end = DateTime.now().millisecondsSinceEpoch;
+        printY("[DEV-LOG] [PaymentService] pendingCompletePurchase COMPLETED in  ${end - start}ms");
       }
     }
+  }
+
+  PurchaseDetails? _getPurchasedData(List<PurchaseDetails> sortedPurchaseDetailsList) {
+    List<PurchaseDetails> filtered = sortedPurchaseDetailsList
+        .where((purchaseDetails) =>
+            purchaseDetails.status == PurchaseStatus.purchased || purchaseDetails.status == PurchaseStatus.restored)
+        .toList();
+
+    if (filtered.isEmpty) return null;
+    return filtered.first;
   }
 
   Future<bool> _verifyPurchase(PurchaseDetails purchaseDetails) async {
@@ -172,7 +220,9 @@ class PaymentService {
     printY("VERIFY PURCHASE");
     printY("> productID ${purchaseDetails.productID} purchaseID ${purchaseDetails.purchaseID}");
     printY("> status ${purchaseDetails.status}");
-    printY("> transactionDate ${purchaseDetails.transactionDate}");
+    printY(
+      "> transactionDate ${DateTime.fromMillisecondsSinceEpoch(int.tryParse(purchaseDetails.transactionDate ?? "0") ?? 0)}",
+    );
     printY("> pendingCompletePurchase ${purchaseDetails.pendingCompletePurchase}\n");
     // printY("> verificationData local ${purchaseDetails.verificationData.localVerificationData}\n");
     // IMPORTANT!! Always verify a purchase before delivering the product.
@@ -184,6 +234,35 @@ class PaymentService {
     //   await HiveService.i.consumeTrial();
     //   await ApiTrial().consume();
     // }
+
+    if (Platform.isIOS) {
+      const String url = 'https://apis.netigen.eu/api/payments/appstore';
+      final response = await http.post(
+        Uri.parse(url),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({
+          'receipt': purchaseDetails.verificationData.serverVerificationData,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final responseData = jsonDecode(response.body);
+        printY('[DEV-LOG] [PaymentService] $responseData');
+        final bool notExpired = DateTime.now()
+            .isBefore(DateTime.fromMillisecondsSinceEpoch(int.parse(responseData['data']['expiresDateMs'])));
+        if (kDebugMode) {
+          printY(
+            '[DEV-LOG] [PaymentService] ${DateTime.now().toIso8601String()}${notExpired ? ">" : "<"}${DateTime.fromMillisecondsSinceEpoch(int.parse(responseData['data']['expiresDateMs'])).toIso8601String()}',
+          );
+        }
+        return notExpired;
+      } else {
+        printY('[DEV-LOG] [PaymentService] ${response.statusCode} ${response.body}');
+        return false;
+      }
+    }
 
     final bool verified = await _verifyPurchaseCallback(purchaseDetails);
     return verified;
