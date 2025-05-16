@@ -149,33 +149,20 @@ class PaymentService {
 
   final _inAppPurchase = InAppPurchase.instance;
 
-  List<PurchaseDetails> _purchaseDetailsList = [];
-
-  Future<void> completePendingPurchases() async {
-    for (PurchaseDetails p in _purchaseDetailsList) {
-      if (p.pendingCompletePurchase) {
-        if (kDebugMode) {
-          printY(
-            "[DEV-LOG] [PaymentService] pendingCompletePurchase for ${DateTime.fromMillisecondsSinceEpoch(int.parse(p.transactionDate ?? "0")).toIso8601String()} ${p.status}",
-          );
-        }
-        await _inAppPurchase.completePurchase(p);
-      }
-    }
-  }
-
   Future<void> _listenToPurchaseUpdated(List<PurchaseDetails> purchaseDetailsList) async {
-    _purchaseDetailsList = purchaseDetailsList;
+    if (purchaseDetailsList.isEmpty) return;
+
     for (PurchaseDetails p in purchaseDetailsList) {
+      printR("transactionDate: ${p.transactionDate} ${p.status}");
       if (p.status == PurchaseStatus.pending) {
         _setPending();
       }
     }
-    if (purchaseDetailsList.isEmpty) return;
+
     if (purchaseDetailsList.length > 1) {
       purchaseDetailsList.sort((a, b) {
-        int dateA = int.tryParse(a.transactionDate ?? '') ?? 0;
-        int dateB = int.tryParse(b.transactionDate ?? '') ?? 0;
+        DateTime dateA = parseTransactionDate(a.transactionDate) ?? DateTime.fromMillisecondsSinceEpoch(0);
+        DateTime dateB = parseTransactionDate(b.transactionDate) ?? DateTime.fromMillisecondsSinceEpoch(0);
         return dateB.compareTo(dateA);
       });
     }
@@ -183,41 +170,47 @@ class PaymentService {
     if (kDebugMode) {
       for (PurchaseDetails x in purchaseDetailsList) {
         printY(
-            "[DEV-LOG] [PaymentService] ${x.productID} ${DateTime.fromMillisecondsSinceEpoch(int.parse(x.transactionDate ?? "0")).toIso8601String()} ${x.pendingCompletePurchase} ${x.purchaseID}");
+          "[DEV-LOG] [PaymentService] ${x.productID} ${parseTransactionDate(x.transactionDate)} ${x.pendingCompletePurchase} ${x.purchaseID}",
+        );
       }
     }
 
     final PurchaseDetails purchaseDetails = _getPurchasedData(purchaseDetailsList) ?? purchaseDetailsList.first;
 
-    if (purchaseDetails.status != PurchaseStatus.pending) {
-      if (purchaseDetails.status == PurchaseStatus.error) {
+    switch (purchaseDetails.status) {
+      case PurchaseStatus.error:
         _isBuying = false;
         _handleError(purchaseDetails.error);
-      } else if (purchaseDetails.status == PurchaseStatus.purchased ||
-          purchaseDetails.status == PurchaseStatus.restored) {
+        break;
+
+      case PurchaseStatus.canceled:
+        _isBuying = false;
+        _paymentStatusStreamController.add(PaymentStatus.canceled);
+        break;
+
+      case PurchaseStatus.purchased:
+      case PurchaseStatus.restored:
+        _isBuying = false;
         if (!boughtProductIds.contains(purchaseDetails.productID)) {
-          final bool valid = await _verifyPurchase(purchaseDetails);
-          _isBuying = false;
+          final valid = await _verifyPurchase(purchaseDetails);
           if (valid) {
             _deliverProduct(purchaseDetails);
           } else {
             _handleInvalidPurchase(purchaseDetails);
-            return;
+            break;
           }
         } else {
-          _isBuying = false;
           _paymentStatusStreamController.add(PaymentStatus.completed);
         }
-      } else if (purchaseDetails.status == PurchaseStatus.canceled) {
-        _isBuying = false;
-        _paymentStatusStreamController.add(PaymentStatus.canceled);
-      }
-      if (purchaseDetails.pendingCompletePurchase) {
-        printY("[DEV-LOG] [PaymentService] pendingCompletePurchase START ${purchaseDetails.productID}");
-        final start = DateTime.now().millisecondsSinceEpoch;
-        await _inAppPurchase.completePurchase(purchaseDetails);
-        final end = DateTime.now().millisecondsSinceEpoch;
-        printY("[DEV-LOG] [PaymentService] pendingCompletePurchase COMPLETED in  ${end - start}ms");
+        break;
+
+      case PurchaseStatus.pending:
+        break;
+    }
+
+    for (PurchaseDetails p in purchaseDetailsList) {
+      if (p.pendingCompletePurchase) {
+        await _inAppPurchase.completePurchase(p);
       }
     }
   }
@@ -232,13 +225,28 @@ class PaymentService {
     return filtered.first;
   }
 
+  DateTime? parseTransactionDate(String? rawDate) {
+    if (rawDate == null) return null;
+
+    final millis = int.tryParse(rawDate);
+    if (millis != null) {
+      return DateTime.fromMillisecondsSinceEpoch(millis);
+    }
+
+    try {
+      return DateTime.parse(rawDate);
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<bool> _verifyPurchase(PurchaseDetails purchaseDetails) async {
     if (kDebugMode) {
       printY("\n");
       printY(
-          "[DEV-LOG] [PaymentService] VERIFY PURCHASE purchaseID ${purchaseDetails.purchaseID} productID ${purchaseDetails.productID} status ${purchaseDetails.status}");
+          "[DEV-LOG] [PaymentService] VERIFY PURCHASE purchaseID ${purchaseDetails.purchaseID} productID ${purchaseDetails.productID} status ${purchaseDetails.status} ${purchaseDetails.transactionDate}");
       printY(
-        "[DEV-LOG] [PaymentService] transactionDate ${DateTime.fromMillisecondsSinceEpoch(int.tryParse(purchaseDetails.transactionDate ?? "0") ?? 0)} pendingCompletePurchase ${purchaseDetails.pendingCompletePurchase}\n",
+        "[DEV-LOG] [PaymentService] transactionDate ${parseTransactionDate(purchaseDetails.transactionDate)} pendingCompletePurchase ${purchaseDetails.pendingCompletePurchase}\n",
       );
     }
 
@@ -324,6 +332,8 @@ class PaymentService {
     _paymentStatusStreamController.add(PaymentStatus.pending);
   }
 
+  bool _delegateSet = false;
+
   Future<void> loadProducts() async {
     if (!_productIdsProvided) {
       throw ArgumentError(
@@ -335,10 +345,11 @@ class PaymentService {
       return;
     }
 
-    if (Platform.isIOS) {
+    if (Platform.isIOS && !_delegateSet) {
       final InAppPurchaseStoreKitPlatformAddition iosPlatformAddition =
           _inAppPurchase.getPlatformAddition<InAppPurchaseStoreKitPlatformAddition>();
       await iosPlatformAddition.setDelegate(ExamplePaymentQueueDelegate());
+      _delegateSet = true;
     }
 
     final response = await _inAppPurchase.queryProductDetails(_allProductIds);
@@ -375,7 +386,7 @@ class PaymentService {
       return true;
     } catch (e) {
       printY(e);
-      if (e is SKError) printR("${e.code} ${e.domain} ${e.userInfo}");
+      if (e is SKError) printR("restorePurchases ${e.code} ${e.domain} ${e.userInfo}");
       return false;
     }
   }
@@ -420,18 +431,25 @@ class PaymentService {
       printY("[DEV-LOG] reloadPurchases in ${time2 - time1}ms");
     } catch (e) {
       printY(e);
-      if (e is SKError) printR("${e.code} ${e.domain} ${e.userInfo}");
+      if (e is SKError) printR("reloadPurchases ${e.code} ${e.domain} ${e.userInfo}");
     }
   }
 
   void buyNonConsumable(ProductDetails productDetails) {
     if (!_isBuying) {
       _isBuying = true;
-      _inAppPurchase.buyNonConsumable(
-        purchaseParam: PurchaseParam(
-          productDetails: productDetails,
-        ),
-      );
+      try {
+        _inAppPurchase.buyNonConsumable(
+          purchaseParam: PurchaseParam(
+            productDetails: productDetails,
+          ),
+        );
+      } catch (e) {
+        _isBuying = false;
+        printR("[DEV-LOG] [PaymentService] buyNonConsumable.error $e");
+      }
+    } else {
+      printY("[DEV-LOG] [PaymentService] _isBuying:$_isBuying");
     }
   }
 
