@@ -72,6 +72,14 @@ class PaymentService {
   Set<String> _premiumProductIds = {};
   int _restoringOnStartTicks = 5;
 
+  // PurchaseDetails.purchaseID changes between app launches so cannot be used
+  DateTime? _premiumExpiration;
+  DateTime? _lastReceiptValidation;
+  Duration _receiptValidationChecking = Duration(days: 1);
+  DateTime? get premiumExpiration => _premiumExpiration;
+  DateTime? get lastReceiptValidation => _lastReceiptValidation;
+  Duration get receiptValidationChecking => _receiptValidationChecking;
+
   /// - [activeProductIds] - all products that could be bought in app at this moment
   /// - [allProductIds] - all products to restoring (also depracated)
   /// - [premiumProductIds] - all products where [premiumUser] == true
@@ -80,6 +88,9 @@ class PaymentService {
     required Set<String> activeProductIds,
     required Set<String> allProductIds,
     required Set<String> premiumProductIds,
+    required DateTime? premiumExpiration,
+    required DateTime? lastReceiptValidation,
+    Duration? receiptValidationChecking,
     PaymentVerifyCallback? verifyPurchaseCallback,
     int restoringOnStartTicks = 5,
   }) {
@@ -88,6 +99,9 @@ class PaymentService {
     _premiumProductIds = premiumProductIds;
     _restoringOnStartTicks = restoringOnStartTicks;
     if (verifyPurchaseCallback != null) _verifyPurchaseCallback = verifyPurchaseCallback;
+    _premiumExpiration = premiumExpiration;
+    _lastReceiptValidation = lastReceiptValidation;
+    _receiptValidationChecking = receiptValidationChecking ?? _receiptValidationChecking;
     _productIdsProvided = true;
   }
 
@@ -142,7 +156,7 @@ class PaymentService {
       if (p.pendingCompletePurchase) {
         if (kDebugMode) {
           printY(
-            "[DEV-LOG] [PaymentService] pendingCompletePurchase for ${DateTime.fromMillisecondsSinceEpoch(int.parse(p.transactionDate ?? "0")).toIso8601String()}",
+            "[DEV-LOG] [PaymentService] pendingCompletePurchase for ${DateTime.fromMillisecondsSinceEpoch(int.parse(p.transactionDate ?? "0")).toIso8601String()} ${p.status}",
           );
         }
         await _inAppPurchase.completePurchase(p);
@@ -165,11 +179,14 @@ class PaymentService {
         return dateB.compareTo(dateA);
       });
     }
+
     if (kDebugMode) {
-      printY(
-        "[DEV-LOG] [PaymentService] ${purchaseDetailsList.map((x) => DateTime.fromMillisecondsSinceEpoch(int.parse(x.transactionDate ?? "0")).toIso8601String())}",
-      );
+      for (PurchaseDetails x in purchaseDetailsList) {
+        printY(
+            "[DEV-LOG] [PaymentService] ${x.productID} ${DateTime.fromMillisecondsSinceEpoch(int.parse(x.transactionDate ?? "0")).toIso8601String()} ${x.pendingCompletePurchase} ${x.purchaseID}");
+      }
     }
+
     final PurchaseDetails purchaseDetails = _getPurchasedData(purchaseDetailsList) ?? purchaseDetailsList.first;
 
     if (purchaseDetails.status != PurchaseStatus.pending) {
@@ -216,57 +233,72 @@ class PaymentService {
   }
 
   Future<bool> _verifyPurchase(PurchaseDetails purchaseDetails) async {
-    printY("\n");
-    printY("VERIFY PURCHASE");
-    printY("> productID ${purchaseDetails.productID} purchaseID ${purchaseDetails.purchaseID}");
-    printY("> status ${purchaseDetails.status}");
-    printY(
-      "> transactionDate ${DateTime.fromMillisecondsSinceEpoch(int.tryParse(purchaseDetails.transactionDate ?? "0") ?? 0)}",
-    );
-    printY("> pendingCompletePurchase ${purchaseDetails.pendingCompletePurchase}\n");
-    // printY("> verificationData local ${purchaseDetails.verificationData.localVerificationData}\n");
-    // IMPORTANT!! Always verify a purchase before delivering the product.
-    // For the purpose of an example, we directly return true.
-
-    // if (purchaseDetails.productID == FullAccessPaymentIds.trial &&
-    //     purchaseDetails.status == PurchaseStatus.purchased &&
-    //     !UserSessionService.instance.trialConsumed) {
-    //   await HiveService.i.consumeTrial();
-    //   await ApiTrial().consume();
-    // }
+    if (kDebugMode) {
+      printY("\n");
+      printY(
+          "[DEV-LOG] [PaymentService] VERIFY PURCHASE purchaseID ${purchaseDetails.purchaseID} productID ${purchaseDetails.productID} status ${purchaseDetails.status}");
+      printY(
+        "[DEV-LOG] [PaymentService] transactionDate ${DateTime.fromMillisecondsSinceEpoch(int.tryParse(purchaseDetails.transactionDate ?? "0") ?? 0)} pendingCompletePurchase ${purchaseDetails.pendingCompletePurchase}\n",
+      );
+    }
 
     if (Platform.isIOS) {
-      const String url = 'https://apis.netigen.eu/api/payments/appstore';
-      final response = await http.post(
-        Uri.parse(url),
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: jsonEncode({
-          'receipt': purchaseDetails.verificationData.serverVerificationData,
-        }),
-      );
+      printY(
+          "[DEV-LOG] [PaymentService] purchaseID${purchaseDetails.purchaseID} _premiumExpiration $_premiumExpiration");
+      if (_lastReceiptValidation != null &&
+          DateTime.now().difference(_lastReceiptValidation!) < _receiptValidationChecking &&
+          _premiumExpiration != null &&
+          _premiumExpiration!.isAfter(DateTime.now())) {
+        printY(
+            "[DEV-LOG] [PaymentService] ${purchaseDetails.productID} verified from local db ${DateTime.now().difference(_lastReceiptValidation!)}");
+        return true;
+      }
 
-      if (response.statusCode == 200) {
-        final responseData = jsonDecode(response.body);
-        printY('[DEV-LOG] [PaymentService] $responseData');
-        final bool notExpired = DateTime.now()
-            .isBefore(DateTime.fromMillisecondsSinceEpoch(int.parse(responseData['data']['expiresDateMs'])));
-        if (kDebugMode) {
-          printY(
-            '[DEV-LOG] [PaymentService] ${DateTime.now().toIso8601String()}${notExpired ? ">" : "<"}${DateTime.fromMillisecondsSinceEpoch(int.parse(responseData['data']['expiresDateMs'])).toIso8601String()}',
-          );
+      try {
+        const String url = 'https://apis.netigen.eu/api/payments/appstore';
+        final int beforeFetch = DateTime.now().millisecondsSinceEpoch;
+        final response = await http.post(
+          Uri.parse(url),
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: jsonEncode({
+            'receipt': purchaseDetails.verificationData.serverVerificationData,
+          }),
+        );
+
+        if (response.statusCode == 200) {
+          final responseData = jsonDecode(response.body);
+          printW(
+              '[DEV-LOG] [PaymentService] payment verification response $responseData in ${DateTime.now().millisecondsSinceEpoch - beforeFetch}ms');
+          final DateTime expirationTime =
+              DateTime.fromMillisecondsSinceEpoch(int.parse(responseData['data']['expiresDateMs']), isUtc: true);
+          final bool notExpired = DateTime.now().isBefore(expirationTime);
+          if (kDebugMode) {
+            printY(
+              '[DEV-LOG] [PaymentService] ${notExpired ? "notExpired" : "expired"} ${DateTime.now().toIso8601String()}(now) ${notExpired ? "<" : ">"} ${expirationTime.toIso8601String()}(exp) ${purchaseDetails.purchaseID}',
+            );
+          }
+          _premiumExpiration = expirationTime;
+          _lastReceiptValidation = DateTime.now();
+          return notExpired;
+        } else {
+          if (response.statusCode == 400) {
+            _premiumExpiration = null;
+            _lastReceiptValidation = null;
+          }
+          printY('[DEV-LOG] [PaymentService] payment verification ${response.statusCode} ${response.body}');
+          return false;
         }
-        return notExpired;
-      } else {
-        printY('[DEV-LOG] [PaymentService] ${response.statusCode} ${response.body}');
+      } catch (e) {
+        printR("[DEV-LOG] [PaymentService] payment verification error: $e");
         return false;
       }
     }
 
+    // android
     final bool verified = await _verifyPurchaseCallback(purchaseDetails);
     return verified;
-
     // return Future<bool>.value(true);
   }
 
@@ -342,7 +374,8 @@ class PaymentService {
       printY("[DEV-LOG] PaymentService.restorePurchases took ${end - start}ms");
       return true;
     } catch (e) {
-      printY(e.toString());
+      printY(e);
+      if (e is SKError) printR("${e.code} ${e.domain} ${e.userInfo}");
       return false;
     }
   }
@@ -386,7 +419,8 @@ class PaymentService {
       final int time2 = DateTime.now().millisecondsSinceEpoch;
       printY("[DEV-LOG] reloadPurchases in ${time2 - time1}ms");
     } catch (e) {
-      printY(e.toString());
+      printY(e);
+      if (e is SKError) printR("${e.code} ${e.domain} ${e.userInfo}");
     }
   }
 
@@ -423,6 +457,6 @@ class ExamplePaymentQueueDelegate implements SKPaymentQueueDelegateWrapper {
 
   @override
   bool shouldShowPriceConsent() {
-    return false;
+    return true;
   }
 }

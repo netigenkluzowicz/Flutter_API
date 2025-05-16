@@ -149,6 +149,7 @@ mixin class InitialServiceMixin {
     _adsInitTime = DateTime.now().millisecondsSinceEpoch - start;
   }
 
+  /// [premiumExpiration, cachedPurchaseID] required by renewable subscription in iOS
   /// - [PaymentService.initParameters]
   /// - [PaymentService.loadProducts]
   /// - [PaymentService.restorePurchases]
@@ -157,6 +158,9 @@ mixin class InitialServiceMixin {
     required Set<String> activeProductIds,
     required Set<String> allProductIds,
     required Set<String> premiumProductIds,
+    required DateTime? premiumExpiration,
+    required DateTime? lastReceiptValidation,
+    Duration? receiptValidationChecking,
     PaymentVerifyCallback? verifyPurchaseCallback,
   }) async {
     int time1 = DateTime.now().millisecondsSinceEpoch;
@@ -169,6 +173,9 @@ mixin class InitialServiceMixin {
           allProductIds: allProductIds,
           premiumProductIds: premiumProductIds,
           verifyPurchaseCallback: verifyPurchaseCallback,
+          premiumExpiration: premiumExpiration,
+          lastReceiptValidation: lastReceiptValidation,
+          receiptValidationChecking: receiptValidationChecking,
         );
         await PaymentService.instance.loadProducts();
         time2 = DateTime.now().millisecondsSinceEpoch;
@@ -207,6 +214,9 @@ mixin class InitialServiceMixin {
       allProductIds: {},
       premiumProductIds: {},
       verifyPurchaseCallback: (_) => Future<bool>.value(true),
+      premiumExpiration: null,
+      lastReceiptValidation: null,
+      receiptValidationChecking: null,
     ));
     futureGroup.add(initAdsParameters(
       interstitialAdUnitId: Platform.isIOS ? iOSInterstitalTestId : androidInterstitalTestId,
