@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:app_tracking_transparency/app_tracking_transparency.dart';
 import 'package:async/async.dart';
 import 'package:flutter/foundation.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
@@ -47,12 +48,13 @@ mixin class InitialServiceMixin {
     _initDone.close();
   }
 
-  Future<void> _waitForConsent({
+  Future<TrackingStatus> _waitForConsent({
     required List<String>? testDeviceIds,
   }) async {
     final Completer<void> completer = Completer<void>();
+    TrackingStatus trackingStatus = TrackingStatus.notDetermined;
     try {
-      await AdConsent().consentInfo(
+      trackingStatus = await AdConsent().consentInfo(
         params: AdConsent.params(testIdentifiers: testDeviceIds),
         action: () {
           completer.complete();
@@ -65,7 +67,8 @@ mixin class InitialServiceMixin {
       printR("[DEV-LOG] InitialServiceMixin.waitForConsent error: $e");
       completer.complete();
     }
-    return completer.future;
+    await completer.future;
+    return trackingStatus;
   }
 
   Future<void> _waitForAdStart() async {
@@ -98,7 +101,8 @@ mixin class InitialServiceMixin {
     if (!skipConsentAndAd) {
       try {
         final int start = DateTime.now().millisecondsSinceEpoch;
-        await _waitForConsent(testDeviceIds: testDeviceIds);
+        final TrackingStatus trackingStatus = await _waitForConsent(testDeviceIds: testDeviceIds);
+        final bool skipAdCauseTracking = trackingStatus == TrackingStatus.notDetermined;
         final int afterConsent = DateTime.now().millisecondsSinceEpoch;
         if (showAdAfterConsent) {
           await createInterstitialAd();
@@ -106,7 +110,7 @@ mixin class InitialServiceMixin {
           createInterstitialAd();
         }
         final int afterCreate = DateTime.now().millisecondsSinceEpoch;
-        if (showAdAfterConsent) {
+        if (showAdAfterConsent && !skipAdCauseTracking) {
           await _waitForAdStart();
         }
         final int afterShow = DateTime.now().millisecondsSinceEpoch;

@@ -24,13 +24,17 @@ class AdConsent {
 
   /// - [action] called when consentForm is closed or unavailable (pass completer.complete())
   /// - [onError] called on Consent error or tracking status is supported and not authorized
-  Future<void> consentInfo({
+  Future<TrackingStatus> consentInfo({
     Function? onError,
     Function? action,
     ConsentRequestParameters? params,
   }) async {
-    final TrackingStatus status = await AppTrackingTransparency.requestTrackingAuthorization();
-    printY("[DEV-LOG] AdConsent trackingStatus:$status");
+    TrackingStatus status = await AppTrackingTransparency.trackingAuthorizationStatus;
+    printY("[DEV-LOG] AdConsent trackingAuthorizationStatus:$status");
+    if (status == TrackingStatus.notDetermined) {
+      status = await AppTrackingTransparency.requestTrackingAuthorization();
+      printY("[DEV-LOG] AdConsent requestTrackingAuthorization:$status");
+    }
     if (status == TrackingStatus.authorized || status == TrackingStatus.notSupported) {
       await _consentInfo(
         onError: onError,
@@ -40,6 +44,7 @@ class AdConsent {
     } else if (onError != null) {
       onError();
     }
+    return status;
   }
 
   Future<void> _consentInfo({
