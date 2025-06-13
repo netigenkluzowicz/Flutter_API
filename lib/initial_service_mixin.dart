@@ -160,6 +160,7 @@ mixin class InitialServiceMixin {
   /// - [PaymentService.waitForPurchaseRestoring]
   Future<void> initPurchases({
     required Set<String> activeProductIds,
+    required Set<String> iosSubscriptionProductIds,
     required Set<String> allProductIds,
     required Set<String> premiumProductIds,
     required DateTime? premiumExpiration,
@@ -174,6 +175,7 @@ mixin class InitialServiceMixin {
       try {
         PaymentService.instance.initParameters(
           activeProductIds: activeProductIds,
+          iosSubscriptionProductIds: iosSubscriptionProductIds,
           allProductIds: allProductIds,
           premiumProductIds: premiumProductIds,
           verifyPurchaseCallback: verifyPurchaseCallback,
@@ -214,6 +216,7 @@ mixin class InitialServiceMixin {
     final FutureGroup<void> futureGroup = FutureGroup();
     futureGroup.add(initPurchases(
       activeProductIds: {},
+      iosSubscriptionProductIds: {},
       allProductIds: {},
       premiumProductIds: {},
       verifyPurchaseCallback: (_) => Future<bool>.value(true),

@@ -64,10 +64,11 @@ class PaymentService {
     );
   }
 
-  PaymentVerifyCallback _verifyPurchaseCallback = (_) => Future<bool>.value(true);
+  PaymentVerifyCallback _verifyPurchaseCallbackAlwaysTrue = (_) => Future<bool>.value(true);
 
   bool _productIdsProvided = false;
   Set<String> _activeProductIds = {};
+  Set<String> _iosSubscriptionProductIds = {};
   Set<String> _allProductIds = {};
   Set<String> _premiumProductIds = {};
   int _restoringOnStartTicks = 5;
@@ -82,10 +83,12 @@ class PaymentService {
 
   /// - [activeProductIds] - all products that could be bought in app at this moment
   /// - [allProductIds] - all products to restoring (also depracated)
+  /// - [iosSubscriptionProductIds] - all ios subscription products (validated by our server)
   /// - [premiumProductIds] - all products where [premiumUser] == true
   /// - [restoringOnStartTicks] - times 100ms is the maximum time of purchases restoring on start; 5 means 500ms
   void initParameters({
     required Set<String> activeProductIds,
+    required Set<String> iosSubscriptionProductIds,
     required Set<String> allProductIds,
     required Set<String> premiumProductIds,
     required DateTime? premiumExpiration,
@@ -95,10 +98,11 @@ class PaymentService {
     int restoringOnStartTicks = 5,
   }) {
     _activeProductIds = activeProductIds;
+    _iosSubscriptionProductIds = iosSubscriptionProductIds;
     _allProductIds = allProductIds;
     _premiumProductIds = premiumProductIds;
     _restoringOnStartTicks = restoringOnStartTicks;
-    if (verifyPurchaseCallback != null) _verifyPurchaseCallback = verifyPurchaseCallback;
+    if (verifyPurchaseCallback != null) _verifyPurchaseCallbackAlwaysTrue = verifyPurchaseCallback;
     _premiumExpiration = premiumExpiration;
     _lastReceiptValidation = lastReceiptValidation;
     _receiptValidationChecking = receiptValidationChecking ?? _receiptValidationChecking;
@@ -153,9 +157,37 @@ class PaymentService {
     if (purchaseDetailsList.isEmpty) return;
 
     for (PurchaseDetails p in purchaseDetailsList) {
-      printR("transactionDate: ${p.transactionDate} ${p.status}");
-      if (p.status == PurchaseStatus.pending) {
-        _setPending();
+      if (_iosSubscriptionProductIds.contains(p.productID)) continue;
+      printR("[DEV-LOG] [PaymentService] transactionDate: ${p.transactionDate} ${p.status} ${p.productID}");
+      switch (p.status) {
+        case PurchaseStatus.pending:
+          _setPending();
+          break;
+        case PurchaseStatus.error:
+          _isBuying = false;
+          _handleError(p.error);
+          break;
+
+        case PurchaseStatus.canceled:
+          _isBuying = false;
+          _paymentStatusStreamController.add(PaymentStatus.canceled);
+          break;
+
+        case PurchaseStatus.purchased:
+        case PurchaseStatus.restored:
+          _isBuying = false;
+          if (!boughtProductIds.contains(p.productID)) {
+            final valid = await _verifyPurchase(p);
+            if (valid) {
+              _deliverProduct(p);
+            } else {
+              _handleInvalidPurchase(p);
+              break;
+            }
+          } else {
+            _paymentStatusStreamController.add(PaymentStatus.completed);
+          }
+          break;
       }
     }
 
@@ -175,37 +207,20 @@ class PaymentService {
       }
     }
 
-    final PurchaseDetails purchaseDetails = _getPurchasedData(purchaseDetailsList) ?? purchaseDetailsList.first;
+    final PurchaseDetails? iosSubPurchaseDetails = _getIosPurchaseToRemoteValidation(purchaseDetailsList);
 
-    switch (purchaseDetails.status) {
-      case PurchaseStatus.error:
-        _isBuying = false;
-        _handleError(purchaseDetails.error);
-        break;
-
-      case PurchaseStatus.canceled:
-        _isBuying = false;
-        _paymentStatusStreamController.add(PaymentStatus.canceled);
-        break;
-
-      case PurchaseStatus.purchased:
-      case PurchaseStatus.restored:
-        _isBuying = false;
-        if (!boughtProductIds.contains(purchaseDetails.productID)) {
-          final valid = await _verifyPurchase(purchaseDetails);
-          if (valid) {
-            _deliverProduct(purchaseDetails);
-          } else {
-            _handleInvalidPurchase(purchaseDetails);
-            break;
-          }
+    if (iosSubPurchaseDetails != null) {
+      _isBuying = false;
+      if (!boughtProductIds.contains(iosSubPurchaseDetails.productID)) {
+        final valid = await _verifyIosSubscriptionPurchase(iosSubPurchaseDetails);
+        if (valid) {
+          _deliverProduct(iosSubPurchaseDetails);
         } else {
-          _paymentStatusStreamController.add(PaymentStatus.completed);
+          _handleInvalidPurchase(iosSubPurchaseDetails);
         }
-        break;
-
-      case PurchaseStatus.pending:
-        break;
+      } else {
+        _paymentStatusStreamController.add(PaymentStatus.completed);
+      }
     }
 
     for (PurchaseDetails p in purchaseDetailsList) {
@@ -215,10 +230,11 @@ class PaymentService {
     }
   }
 
-  PurchaseDetails? _getPurchasedData(List<PurchaseDetails> sortedPurchaseDetailsList) {
+  PurchaseDetails? _getIosPurchaseToRemoteValidation(List<PurchaseDetails> sortedPurchaseDetailsList) {
     List<PurchaseDetails> filtered = sortedPurchaseDetailsList
         .where((purchaseDetails) =>
-            purchaseDetails.status == PurchaseStatus.purchased || purchaseDetails.status == PurchaseStatus.restored)
+            _iosSubscriptionProductIds.contains(purchaseDetails.productID) &&
+            (purchaseDetails.status == PurchaseStatus.purchased || purchaseDetails.status == PurchaseStatus.restored))
         .toList();
 
     if (filtered.isEmpty) return null;
@@ -240,17 +256,8 @@ class PaymentService {
     }
   }
 
-  Future<bool> _verifyPurchase(PurchaseDetails purchaseDetails) async {
-    if (kDebugMode) {
-      printY("\n");
-      printY(
-          "[DEV-LOG] [PaymentService] VERIFY PURCHASE purchaseID ${purchaseDetails.purchaseID} productID ${purchaseDetails.productID} status ${purchaseDetails.status} ${purchaseDetails.transactionDate}");
-      printY(
-        "[DEV-LOG] [PaymentService] transactionDate ${parseTransactionDate(purchaseDetails.transactionDate)} pendingCompletePurchase ${purchaseDetails.pendingCompletePurchase}\n",
-      );
-    }
-
-    if (Platform.isIOS) {
+  Future<bool> _verifyIosSubscriptionPurchase(PurchaseDetails purchaseDetails) async {
+    if (Platform.isIOS && _iosSubscriptionProductIds.contains(purchaseDetails.productID)) {
       printY(
           "[DEV-LOG] [PaymentService] purchaseID${purchaseDetails.purchaseID} _premiumExpiration $_premiumExpiration");
       if (_lastReceiptValidation != null &&
@@ -303,9 +310,25 @@ class PaymentService {
         return false;
       }
     }
+    return false;
+  }
+
+  Future<bool> _verifyPurchase(PurchaseDetails purchaseDetails) async {
+    if (kDebugMode) {
+      printY("\n");
+      printY(
+          "[DEV-LOG] [PaymentService] VERIFY PURCHASE purchaseID ${purchaseDetails.purchaseID} productID ${purchaseDetails.productID} status ${purchaseDetails.status} ${purchaseDetails.transactionDate}");
+      printY(
+        "[DEV-LOG] [PaymentService] transactionDate ${parseTransactionDate(purchaseDetails.transactionDate)} pendingCompletePurchase ${purchaseDetails.pendingCompletePurchase}\n",
+      );
+    }
+
+    if (Platform.isIOS && _iosSubscriptionProductIds.contains(purchaseDetails.productID)) {
+      return false;
+    }
 
     // android
-    final bool verified = await _verifyPurchaseCallback(purchaseDetails);
+    final bool verified = await _verifyPurchaseCallbackAlwaysTrue(purchaseDetails);
     return verified;
     // return Future<bool>.value(true);
   }
