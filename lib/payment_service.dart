@@ -19,13 +19,7 @@ const bool kInitialPremiumUser = false;
 /// - completed
 /// - canceled
 /// - errored
-enum PaymentStatus {
-  idle,
-  pending,
-  completed,
-  canceled,
-  errored,
-}
+enum PaymentStatus { idle, pending, completed, canceled, errored }
 
 typedef PaymentVerifyCallback = Future<bool> Function(PurchaseDetails);
 
@@ -75,9 +69,10 @@ class PaymentService {
   int _restoringOnStartTicks = 5;
 
   // PurchaseDetails.purchaseID changes between app launches so cannot be used
+  String? _cachedProductId;
   DateTime? _premiumExpiration;
   DateTime? _lastReceiptValidation;
-  Duration _receiptValidationChecking = Duration(days: 1);
+  Duration _receiptValidationChecking = Duration(hours: 1);
   Duration get receiptValidationChecking => _receiptValidationChecking;
 
   /// - [activeProductIds] - all products that could be bought in app at this moment
@@ -102,18 +97,25 @@ class PaymentService {
     if (verifyPurchaseCallback != null) _verifyPurchaseCallbackAlwaysTrue = verifyPurchaseCallback;
     _receiptValidationChecking = receiptValidationChecking ?? _receiptValidationChecking;
     _productIdsProvided = true;
-    final prefs = await SharedPreferences.getInstance();
-    final int? premiumExpirationMillis = prefs.getInt(_premiumExpirationMillisKey);
-    _premiumExpiration = premiumExpirationMillis == null
-        ? null
-        : DateTime.fromMillisecondsSinceEpoch(premiumExpirationMillis, isUtc: true);
-    final int? lastReceiptValidationMillis = prefs.getInt(_lastReceiptValidationMillisKey);
-    _lastReceiptValidation = lastReceiptValidationMillis == null
-        ? null
-        : DateTime.fromMillisecondsSinceEpoch(lastReceiptValidationMillis, isUtc: true);
-    printY(
-      "[DEV-LOG] [PaymentService] lastReceiptValidation:$_lastReceiptValidation premiumExpiration:$_premiumExpiration",
-    );
+    if (Platform.isIOS) {
+      final prefs = await SharedPreferences.getInstance();
+      final int? premiumExpirationMillis = prefs.getInt(_premiumExpirationMillisKey);
+      _premiumExpiration = premiumExpirationMillis == null
+          ? null
+          : DateTime.fromMillisecondsSinceEpoch(premiumExpirationMillis, isUtc: true);
+      final int? lastReceiptValidationMillis = prefs.getInt(_lastReceiptValidationMillisKey);
+      _lastReceiptValidation = lastReceiptValidationMillis == null
+          ? null
+          : DateTime.fromMillisecondsSinceEpoch(lastReceiptValidationMillis, isUtc: true);
+      _cachedProductId = prefs.getString(_cachedProductIdKey);
+      printY(
+        "[DEV-LOG] [PaymentService] lastReceiptValidation:$_lastReceiptValidation premiumExpiration:$_premiumExpiration cachedProductId:$_cachedProductId",
+      );
+      if (_cachedProductId != null && _premiumExpiration!.isAfter(DateTime.now())) {
+        printY("[DEV-LOG] [PaymentService] deliverCachedProduct cachedProductId:$_cachedProductId");
+        _deliverCachedProduct(_cachedProductId!);
+      }
+    }
   }
 
   late StreamSubscription<List<PurchaseDetails>> _subscription;
@@ -239,9 +241,11 @@ class PaymentService {
 
   PurchaseDetails? _getIosPurchaseToRemoteValidation(List<PurchaseDetails> sortedPurchaseDetailsList) {
     List<PurchaseDetails> filtered = sortedPurchaseDetailsList
-        .where((purchaseDetails) =>
-            _iosSubscriptionProductIds.contains(purchaseDetails.productID) &&
-            (purchaseDetails.status == PurchaseStatus.purchased || purchaseDetails.status == PurchaseStatus.restored))
+        .where(
+          (purchaseDetails) =>
+              _iosSubscriptionProductIds.contains(purchaseDetails.productID) &&
+              (purchaseDetails.status == PurchaseStatus.purchased || purchaseDetails.status == PurchaseStatus.restored),
+        )
         .toList();
 
     if (filtered.isEmpty) return null;
@@ -266,13 +270,15 @@ class PaymentService {
   Future<bool> _verifyIosSubscriptionPurchase(PurchaseDetails purchaseDetails) async {
     if (Platform.isIOS && _iosSubscriptionProductIds.contains(purchaseDetails.productID)) {
       printY(
-          "[DEV-LOG] [PaymentService] purchaseID${purchaseDetails.purchaseID} _premiumExpiration $_premiumExpiration");
+        "[DEV-LOG] [PaymentService] purchaseID${purchaseDetails.purchaseID} _premiumExpiration $_premiumExpiration",
+      );
       if (_lastReceiptValidation != null &&
           DateTime.now().difference(_lastReceiptValidation!) < _receiptValidationChecking &&
           _premiumExpiration != null &&
           _premiumExpiration!.isAfter(DateTime.now())) {
         printY(
-            "[DEV-LOG] [PaymentService] ${purchaseDetails.productID} verified from local db ${DateTime.now().difference(_lastReceiptValidation!)}");
+          "[DEV-LOG] [PaymentService] ${purchaseDetails.productID} verified from local db ${DateTime.now().difference(_lastReceiptValidation!)}",
+        );
         return true;
       }
 
@@ -281,20 +287,19 @@ class PaymentService {
         final int beforeFetch = DateTime.now().millisecondsSinceEpoch;
         final response = await http.post(
           Uri.parse(url),
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: jsonEncode({
-            'receipt': purchaseDetails.verificationData.serverVerificationData,
-          }),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({'receipt': purchaseDetails.verificationData.serverVerificationData}),
         );
 
         if (response.statusCode == 200) {
           final responseData = jsonDecode(response.body);
           printW(
-              '[DEV-LOG] [PaymentService] payment verification response $responseData in ${DateTime.now().millisecondsSinceEpoch - beforeFetch}ms');
-          final DateTime expirationTime =
-              DateTime.fromMillisecondsSinceEpoch(int.parse(responseData['data']['expiresDateMs']), isUtc: true);
+            '[DEV-LOG] [PaymentService] payment verification response $responseData in ${DateTime.now().millisecondsSinceEpoch - beforeFetch}ms',
+          );
+          final DateTime expirationTime = DateTime.fromMillisecondsSinceEpoch(
+            int.parse(responseData['data']['expiresDateMs']),
+            isUtc: true,
+          );
           final bool notExpired = DateTime.now().isBefore(expirationTime);
           if (kDebugMode) {
             printY(
@@ -302,16 +307,14 @@ class PaymentService {
             );
           }
           _storePremiumExpiration(
+            cachedProductId: purchaseDetails.productID,
             premiumExpiration: expirationTime,
             lastReceiptValidation: DateTime.now(),
           );
           return notExpired;
         } else {
           if (response.statusCode == 400) {
-            _storePremiumExpiration(
-              premiumExpiration: null,
-              lastReceiptValidation: null,
-            );
+            _storePremiumExpiration(cachedProductId: null, premiumExpiration: null, lastReceiptValidation: null);
           }
           printY('[DEV-LOG] [PaymentService] payment verification ${response.statusCode} ${response.body}');
           return false;
@@ -328,7 +331,8 @@ class PaymentService {
     if (kDebugMode) {
       printY("\n");
       printY(
-          "[DEV-LOG] [PaymentService] VERIFY PURCHASE purchaseID ${purchaseDetails.purchaseID} productID ${purchaseDetails.productID} status ${purchaseDetails.status} ${purchaseDetails.transactionDate}");
+        "[DEV-LOG] [PaymentService] VERIFY PURCHASE purchaseID ${purchaseDetails.purchaseID} productID ${purchaseDetails.productID} status ${purchaseDetails.status} ${purchaseDetails.transactionDate}",
+      );
       printY(
         "[DEV-LOG] [PaymentService] transactionDate ${parseTransactionDate(purchaseDetails.transactionDate)} pendingCompletePurchase ${purchaseDetails.pendingCompletePurchase}\n",
       );
@@ -347,6 +351,24 @@ class PaymentService {
   void _deliverProduct(PurchaseDetails purchaseDetails) {
     disableInterstitialAd();
     _purchases.add(purchaseDetails);
+    _boughtProductIdsStreamController.add(boughtProductIds);
+    _paymentStatusStreamController.add(PaymentStatus.completed);
+  }
+
+  void _deliverCachedProduct(String productId) {
+    disableInterstitialAd();
+    _purchases.add(
+      PurchaseDetails(
+        productID: productId,
+        verificationData: PurchaseVerificationData(
+          localVerificationData: 'cachedPurchase',
+          serverVerificationData: 'cachedPurchase',
+          source: 'cachedPurchase',
+        ),
+        transactionDate: '',
+        status: PurchaseStatus.restored,
+      ),
+    );
     _boughtProductIdsStreamController.add(boughtProductIds);
     _paymentStatusStreamController.add(PaymentStatus.completed);
   }
@@ -371,7 +393,8 @@ class PaymentService {
   Future<void> loadProducts() async {
     if (!_productIdsProvided) {
       throw ArgumentError(
-          "[DEV-LOG] [PaymentService] ERROR: Product ids not provided. Use PaymentService.initParameters");
+        "[DEV-LOG] [PaymentService] ERROR: Product ids not provided. Use PaymentService.initParameters",
+      );
     }
     _isAvailable = await _inAppPurchase.isAvailable();
     if (!_isAvailable) {
@@ -380,8 +403,8 @@ class PaymentService {
     }
 
     if (Platform.isIOS && !_delegateSet) {
-      final InAppPurchaseStoreKitPlatformAddition iosPlatformAddition =
-          _inAppPurchase.getPlatformAddition<InAppPurchaseStoreKitPlatformAddition>();
+      final InAppPurchaseStoreKitPlatformAddition iosPlatformAddition = _inAppPurchase
+          .getPlatformAddition<InAppPurchaseStoreKitPlatformAddition>();
       await iosPlatformAddition.setDelegate(ExamplePaymentQueueDelegate());
       _delegateSet = true;
     }
@@ -409,7 +432,8 @@ class PaymentService {
   Future<bool> restorePurchases() async {
     if (!_productIdsProvided) {
       throw ArgumentError(
-          "[DEV-LOG] [PaymentService] ERROR: Product ids not provided. Use PaymentService.initParameters");
+        "[DEV-LOG] [PaymentService] ERROR: Product ids not provided. Use PaymentService.initParameters",
+      );
     }
     try {
       printY("[DEV-LOG] PaymentService.restorePurchases STARTED with products: ${_allProducts.length}");
@@ -427,8 +451,8 @@ class PaymentService {
 
   void dispose() {
     if (Platform.isIOS) {
-      final InAppPurchaseStoreKitPlatformAddition iosPlatformAddition =
-          _inAppPurchase.getPlatformAddition<InAppPurchaseStoreKitPlatformAddition>();
+      final InAppPurchaseStoreKitPlatformAddition iosPlatformAddition = _inAppPurchase
+          .getPlatformAddition<InAppPurchaseStoreKitPlatformAddition>();
       iosPlatformAddition.setDelegate(null);
     }
     _subscription.cancel();
@@ -442,14 +466,11 @@ class PaymentService {
     int tick = 0;
     final start = DateTime.now().millisecondsSinceEpoch;
     await Future.doWhile(
-      () => Future.delayed(
-        const Duration(milliseconds: 100),
-        () {
-          tick++;
-          printY("[DEV-LOG] waiting for checkPremiumUserOnStart ${tick * 100}ms");
-          if (tick >= _restoringOnStartTicks) _restoreExecuted = true;
-        },
-      ).then((_) => !_restoreExecuted),
+      () => Future.delayed(const Duration(milliseconds: 100), () {
+        tick++;
+        printY("[DEV-LOG] waiting for checkPremiumUserOnStart ${tick * 100}ms");
+        if (tick >= _restoringOnStartTicks) _restoreExecuted = true;
+      }).then((_) => !_restoreExecuted),
     );
     final end = DateTime.now().millisecondsSinceEpoch;
 
@@ -473,11 +494,7 @@ class PaymentService {
     if (!_isBuying) {
       _isBuying = true;
       try {
-        _inAppPurchase.buyNonConsumable(
-          purchaseParam: PurchaseParam(
-            productDetails: productDetails,
-          ),
-        );
+        _inAppPurchase.buyNonConsumable(purchaseParam: PurchaseParam(productDetails: productDetails));
       } catch (e) {
         _isBuying = false;
         printR("[DEV-LOG] [PaymentService] buyNonConsumable.error $e");
@@ -495,12 +512,15 @@ class PaymentService {
   List<PurchaseDetails> _filterPremiumPurchases(List<PurchaseDetails> purchases) =>
       purchases.where((element) => _premiumProductIds.contains(element.productID)).toList();
 
+  final String _cachedProductIdKey = "cachedProductId";
   final String _premiumExpirationMillisKey = "premiumExpirationMillis";
   final String _lastReceiptValidationMillisKey = "lastReceiptValidationMillis";
   Future<void> _storePremiumExpiration({
+    required String? cachedProductId,
     required DateTime? premiumExpiration,
     required DateTime? lastReceiptValidation,
   }) async {
+    _cachedProductId = cachedProductId;
     _premiumExpiration = premiumExpiration;
     _lastReceiptValidation = lastReceiptValidation;
     final prefs = await SharedPreferences.getInstance();
@@ -513,6 +533,11 @@ class PaymentService {
       prefs.remove(_lastReceiptValidationMillisKey);
     } else {
       prefs.setInt(_lastReceiptValidationMillisKey, lastReceiptValidation.millisecondsSinceEpoch);
+    }
+    if (cachedProductId == null) {
+      prefs.remove(_cachedProductIdKey);
+    } else {
+      prefs.setString(_cachedProductIdKey, cachedProductId);
     }
   }
 }
