@@ -1,11 +1,11 @@
 name: flutter_api
 description: Flutter API for app development.
-version: 3.27.0+5
+version: 3.32.4+0
 homepage:
 
 environment:
-  sdk: '>=3.6.0 <4.0.0'
-  flutter: '>=3.27.0'
+  sdk: '>=3.8.1 <4.0.0'
+  flutter: '>=3.32.4'
 
 dependencies:
   app_settings: ^6.1.1
@@ -20,6 +20,7 @@ dependencies:
   # package_info_plus >=6.0.0 <8.0.0 to be compatible with wakelock_plus 1.2.4
   # - fixed in wakelock_plus 1.2.5
   package_info_plus: ^8.3.0
+  shared_preferences: ^2.5.3
   webview_flutter: ^4.9.0
   webview_flutter_android: ^4.0.0
   webview_flutter_wkwebview: ^3.18.4
@@ -28,7 +29,7 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^5.0.0
+  flutter_lints: ^6.0.0
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:in_app_purchase_storekit/in_app_purchase_storekit.dart';
 import 'package:in_app_purchase_storekit/store_kit_wrappers.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'interstitial_ad.dart';
 import 'utils.dart';
@@ -77,8 +78,6 @@ class PaymentService {
   DateTime? _premiumExpiration;
   DateTime? _lastReceiptValidation;
   Duration _receiptValidationChecking = Duration(days: 1);
-  DateTime? get premiumExpiration => _premiumExpiration;
-  DateTime? get lastReceiptValidation => _lastReceiptValidation;
   Duration get receiptValidationChecking => _receiptValidationChecking;
 
   /// - [activeProductIds] - all products that could be bought in app at this moment
@@ -86,27 +85,35 @@ class PaymentService {
   /// - [iosSubscriptionProductIds] - all ios subscription products (validated by our server)
   /// - [premiumProductIds] - all products where [premiumUser] == true
   /// - [restoringOnStartTicks] - times 100ms is the maximum time of purchases restoring on start; 5 means 500ms
-  void initParameters({
+  Future<void> initParameters({
     required Set<String> activeProductIds,
     required Set<String> iosSubscriptionProductIds,
     required Set<String> allProductIds,
     required Set<String> premiumProductIds,
-    required DateTime? premiumExpiration,
-    required DateTime? lastReceiptValidation,
     Duration? receiptValidationChecking,
     PaymentVerifyCallback? verifyPurchaseCallback,
     int restoringOnStartTicks = 5,
-  }) {
+  }) async {
     _activeProductIds = activeProductIds;
     _iosSubscriptionProductIds = iosSubscriptionProductIds;
     _allProductIds = allProductIds;
     _premiumProductIds = premiumProductIds;
     _restoringOnStartTicks = restoringOnStartTicks;
     if (verifyPurchaseCallback != null) _verifyPurchaseCallbackAlwaysTrue = verifyPurchaseCallback;
-    _premiumExpiration = premiumExpiration;
-    _lastReceiptValidation = lastReceiptValidation;
     _receiptValidationChecking = receiptValidationChecking ?? _receiptValidationChecking;
     _productIdsProvided = true;
+    final prefs = await SharedPreferences.getInstance();
+    final int? premiumExpirationMillis = prefs.getInt(_premiumExpirationMillisKey);
+    _premiumExpiration = premiumExpirationMillis == null
+        ? null
+        : DateTime.fromMillisecondsSinceEpoch(premiumExpirationMillis, isUtc: true);
+    final int? lastReceiptValidationMillis = prefs.getInt(_lastReceiptValidationMillisKey);
+    _lastReceiptValidation = lastReceiptValidationMillis == null
+        ? null
+        : DateTime.fromMillisecondsSinceEpoch(lastReceiptValidationMillis, isUtc: true);
+    printY(
+      "[DEV-LOG] [PaymentService] lastReceiptValidation:$_lastReceiptValidation premiumExpiration:$_premiumExpiration",
+    );
   }
 
   late StreamSubscription<List<PurchaseDetails>> _subscription;
@@ -294,13 +301,17 @@ class PaymentService {
               '[DEV-LOG] [PaymentService] ${notExpired ? "notExpired" : "expired"} ${DateTime.now().toIso8601String()}(now) ${notExpired ? "<" : ">"} ${expirationTime.toIso8601String()}(exp) ${purchaseDetails.purchaseID}',
             );
           }
-          _premiumExpiration = expirationTime;
-          _lastReceiptValidation = DateTime.now();
+          _storePremiumExpiration(
+            premiumExpiration: expirationTime,
+            lastReceiptValidation: DateTime.now(),
+          );
           return notExpired;
         } else {
           if (response.statusCode == 400) {
-            _premiumExpiration = null;
-            _lastReceiptValidation = null;
+            _storePremiumExpiration(
+              premiumExpiration: null,
+              lastReceiptValidation: null,
+            );
           }
           printY('[DEV-LOG] [PaymentService] payment verification ${response.statusCode} ${response.body}');
           return false;
@@ -483,6 +494,27 @@ class PaymentService {
 
   List<PurchaseDetails> _filterPremiumPurchases(List<PurchaseDetails> purchases) =>
       purchases.where((element) => _premiumProductIds.contains(element.productID)).toList();
+
+  final String _premiumExpirationMillisKey = "premiumExpirationMillis";
+  final String _lastReceiptValidationMillisKey = "lastReceiptValidationMillis";
+  Future<void> _storePremiumExpiration({
+    required DateTime? premiumExpiration,
+    required DateTime? lastReceiptValidation,
+  }) async {
+    _premiumExpiration = premiumExpiration;
+    _lastReceiptValidation = lastReceiptValidation;
+    final prefs = await SharedPreferences.getInstance();
+    if (premiumExpiration == null) {
+      prefs.remove(_premiumExpirationMillisKey);
+    } else {
+      prefs.setInt(_premiumExpirationMillisKey, premiumExpiration.millisecondsSinceEpoch);
+    }
+    if (lastReceiptValidation == null) {
+      prefs.remove(_lastReceiptValidationMillisKey);
+    } else {
+      prefs.setInt(_lastReceiptValidationMillisKey, lastReceiptValidation.millisecondsSinceEpoch);
+    }
+  }
 }
 
 /// Example implementation of the

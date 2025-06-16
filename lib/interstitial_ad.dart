@@ -208,7 +208,7 @@ class _InterstitialAdSingleton {
     await _interstitialAd?.show();
   }
 
-  _executeCallback(VoidCallback? cb) {
+  void _executeCallback(VoidCallback? cb) {
     if (cb != null) {
       cb();
     }

@@ -153,7 +153,12 @@ mixin class InitialServiceMixin {
     _adsInitTime = DateTime.now().millisecondsSinceEpoch - start;
   }
 
-  /// [premiumExpiration, cachedPurchaseID] required by renewable subscription in iOS
+  /// - [activeProductIds] - all products that could be bought in app at this moment
+  /// - [allProductIds] - all products to restoring (also depracated)
+  /// - [iosSubscriptionProductIds] - all ios subscription products (validated by our server)
+  /// - [premiumProductIds] - all products where [premiumUser] == true
+  /// - [restoringOnStartTicks] - times 100ms is the maximum time of purchases restoring on start; 5 means 500ms
+  /// ---
   /// - [PaymentService.initParameters]
   /// - [PaymentService.loadProducts]
   /// - [PaymentService.restorePurchases]
@@ -163,25 +168,23 @@ mixin class InitialServiceMixin {
     required Set<String> iosSubscriptionProductIds,
     required Set<String> allProductIds,
     required Set<String> premiumProductIds,
-    required DateTime? premiumExpiration,
-    required DateTime? lastReceiptValidation,
     Duration? receiptValidationChecking,
     PaymentVerifyCallback? verifyPurchaseCallback,
+    int restoringOnStartTicks = 5,
   }) async {
     int time1 = DateTime.now().millisecondsSinceEpoch;
     int time2 = time1, time3 = time1, time4 = time1;
     if (defaultTargetPlatform == TargetPlatform.iOS || defaultTargetPlatform == TargetPlatform.android) {
       time1 = DateTime.now().millisecondsSinceEpoch;
       try {
-        PaymentService.instance.initParameters(
+        await PaymentService.instance.initParameters(
           activeProductIds: activeProductIds,
           iosSubscriptionProductIds: iosSubscriptionProductIds,
           allProductIds: allProductIds,
           premiumProductIds: premiumProductIds,
           verifyPurchaseCallback: verifyPurchaseCallback,
-          premiumExpiration: premiumExpiration,
-          lastReceiptValidation: lastReceiptValidation,
           receiptValidationChecking: receiptValidationChecking,
+          restoringOnStartTicks: restoringOnStartTicks,
         );
         await PaymentService.instance.loadProducts();
         time2 = DateTime.now().millisecondsSinceEpoch;
@@ -220,8 +223,6 @@ mixin class InitialServiceMixin {
       allProductIds: {},
       premiumProductIds: {},
       verifyPurchaseCallback: (_) => Future<bool>.value(true),
-      premiumExpiration: null,
-      lastReceiptValidation: null,
       receiptValidationChecking: null,
     ));
     futureGroup.add(initAdsParameters(

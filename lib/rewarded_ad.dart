@@ -21,12 +21,11 @@ Future<void> showRewardedAd({
   required VoidCallback onUserEarnedReward,
   bool? freeReward,
   VoidCallback? onFailed,
-}) async =>
-    await _RewardedAdSingleton.instance.showRewardedAd(
-      onUserEarnedReward: onUserEarnedReward,
-      freeReward: freeReward,
-      onAdFailedToShowFullScreenContent: onFailed,
-    );
+}) async => await _RewardedAdSingleton.instance.showRewardedAd(
+  onUserEarnedReward: onUserEarnedReward,
+  freeReward: freeReward,
+  onAdFailedToShowFullScreenContent: onFailed,
+);
 
 class _RewardedAdSingleton {
   // make this a singleton class
@@ -96,20 +95,15 @@ class _RewardedAdSingleton {
 
     await _rewardedAd?.setImmersiveMode(true);
     _rewardedAd?.fullScreenContentCallback = FullScreenContentCallback(
-      onAdFailedToShowFullScreenContent: (
-        RewardedAd ad,
-        AdError error,
-      ) {
-        printR(
-          '[DEV-LOG] RewardedAd onAdFailedToShowFullScreenContent: $error',
-        );
+      onAdFailedToShowFullScreenContent: (RewardedAd ad, AdError error) {
+        printR('[DEV-LOG] RewardedAd onAdFailedToShowFullScreenContent: $error');
         ad.dispose();
         _executeCallback(onAdFailedToShowFullScreenContent);
       },
     );
 
     await _rewardedAd?.show(
-      onUserEarnedReward: (AdWithoutView ad, RewardItem __) {
+      onUserEarnedReward: (AdWithoutView ad, RewardItem _) {
         printR('[DEV-LOG] RewardedAd onUserEarnedReward');
         ad.dispose();
         _loaded = false;
@@ -119,7 +113,7 @@ class _RewardedAdSingleton {
     );
   }
 
-  _executeCallback(VoidCallback? cb) {
+  void _executeCallback(VoidCallback? cb) {
     if (cb != null) {
       cb();
     }
@@ -130,17 +124,14 @@ class _RewardedAdSingleton {
     int tick = 0;
 
     await Future.doWhile(
-      () => Future.delayed(
-        const Duration(milliseconds: 200),
-        () {
-          tick++;
-          if (tick >= _loadingTicks) {
-            printY("[DEV-LOG] RewardedAd loading timed out after ${(_loadingTicks * 0.2).toStringAsFixed(1)}s.");
-            _rewardedAd?.dispose();
-            return;
-          }
-        },
-      ).then((_) => !_loaded && tick < _loadingTicks),
+      () => Future.delayed(const Duration(milliseconds: 200), () {
+        tick++;
+        if (tick >= _loadingTicks) {
+          printY("[DEV-LOG] RewardedAd loading timed out after ${(_loadingTicks * 0.2).toStringAsFixed(1)}s.");
+          _rewardedAd?.dispose();
+          return;
+        }
+      }).then((_) => !_loaded && tick < _loadingTicks),
     );
     if (tick < _loadingTicks) printY("[DEV-LOG] RewardedAd loaded after ${(tick * 0.2).toStringAsFixed(1)}s");
   }
