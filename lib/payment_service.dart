@@ -301,12 +301,22 @@ class PaymentService {
       // refresh payment verification but approve payment if it expired before subscription extension
       final bool expiredOrExtended = false || subscriptionExtended;
       try {
-        const String url = 'https://apis.netigen.eu/api/payments/appstore';
+        const String url = 'https://apis.netigen.eu/api/payments/appstore2';
         final int beforeFetch = DateTime.now().millisecondsSinceEpoch;
+
+        // TODO: add localVerification
+        // printY("localVerificationData: ${purchaseDetails.verificationData.localVerificationData}");
+        // final Map<String, dynamic> localVerificationData = json.decode(
+        //   purchaseDetails.verificationData.localVerificationData,
+        // );
+        // final DateTime expiresDate = DateTime.fromMillisecondsSinceEpoch(localVerificationData["expiresDate"]);
+        // printR("expiresDate $expiresDate expired:${now.isAfter(expiresDate)} now:$now");
+        // if (now.isAfter(expiresDate)) return false;
+
         final response = await http.post(
           Uri.parse(url),
           headers: {'Content-Type': 'application/json'},
-          body: jsonEncode({'receipt': purchaseDetails.verificationData.serverVerificationData}),
+          body: jsonEncode({'jws': purchaseDetails.verificationData.serverVerificationData}),
         );
 
         if (response.statusCode == 200) {
