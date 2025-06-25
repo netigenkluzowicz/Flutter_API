@@ -74,6 +74,8 @@ class PaymentService {
   DateTime? _lastReceiptValidation;
   Duration _receiptValidationChecking = Duration(hours: 1);
   Duration get receiptValidationChecking => _receiptValidationChecking;
+  Duration _iosSubscriptionExtension = Duration(days: 0);
+  Duration get iosSubscriptionExtension => _iosSubscriptionExtension;
 
   /// - [activeProductIds] - all products that could be bought in app at this moment
   /// - [allProductIds] - all products to restoring (also depracated)
@@ -86,6 +88,7 @@ class PaymentService {
     required Set<String> allProductIds,
     required Set<String> premiumProductIds,
     Duration? receiptValidationChecking,
+    Duration? iosSubscriptionExtension,
     PaymentVerifyCallback? verifyPurchaseCallback,
     int restoringOnStartTicks = 5,
   }) async {
@@ -96,6 +99,7 @@ class PaymentService {
     _restoringOnStartTicks = restoringOnStartTicks;
     if (verifyPurchaseCallback != null) _verifyPurchaseCallbackAlwaysTrue = verifyPurchaseCallback;
     _receiptValidationChecking = receiptValidationChecking ?? _receiptValidationChecking;
+    _iosSubscriptionExtension = iosSubscriptionExtension ?? _iosSubscriptionExtension;
     _productIdsProvided = true;
     if (Platform.isIOS) {
       final prefs = await SharedPreferences.getInstance();
@@ -186,6 +190,10 @@ class PaymentService {
         case PurchaseStatus.restored:
           _isBuying = false;
           if (!boughtProductIds.contains(p.productID)) {
+            if (Platform.isIOS && _iosSubscriptionProductIds.contains(p.productID)) {
+              // verification below after list sorting
+              break;
+            }
             final valid = await _verifyPurchase(p);
             if (valid) {
               _deliverProduct(p);
@@ -211,7 +219,7 @@ class PaymentService {
     if (kDebugMode) {
       for (PurchaseDetails x in purchaseDetailsList) {
         printY(
-          "[DEV-LOG] [PaymentService] ${x.productID} ${parseTransactionDate(x.transactionDate)} ${x.pendingCompletePurchase} ${x.purchaseID}",
+          "[DEV-LOG] [PaymentService]> ${x.productID} ${parseTransactionDate(x.transactionDate)} ${x.pendingCompletePurchase} ${x.purchaseID}",
         );
       }
     }
@@ -272,16 +280,26 @@ class PaymentService {
       printY(
         "[DEV-LOG] [PaymentService] purchaseID${purchaseDetails.purchaseID} _premiumExpiration $_premiumExpiration",
       );
+      final now = DateTime.now();
+      bool subscriptionExtended = false;
       if (_lastReceiptValidation != null &&
           DateTime.now().difference(_lastReceiptValidation!) < _receiptValidationChecking &&
-          _premiumExpiration != null &&
-          _premiumExpiration!.isAfter(DateTime.now())) {
-        printY(
-          "[DEV-LOG] [PaymentService] ${purchaseDetails.productID} verified from local db ${DateTime.now().difference(_lastReceiptValidation!)}",
-        );
-        return true;
+          _premiumExpiration != null) {
+        if (_premiumExpiration!.isAfter(now)) {
+          printY(
+            "[DEV-LOG] [PaymentService] ${purchaseDetails.productID} verified from local db ${now.difference(_lastReceiptValidation!)}",
+          );
+          return true;
+        } else if (_premiumExpiration!.isAfter(now.subtract(_iosSubscriptionExtension))) {
+          subscriptionExtended = true;
+          printY(
+            "[DEV-LOG] [PaymentService] ${purchaseDetails.productID} verified from local db ${now.difference(_lastReceiptValidation!)}",
+          );
+        }
       }
 
+      // refresh payment verification but approve payment if it expired before subscription extension
+      final bool expiredOrExtended = false || subscriptionExtended;
       try {
         const String url = 'https://apis.netigen.eu/api/payments/appstore';
         final int beforeFetch = DateTime.now().millisecondsSinceEpoch;
@@ -300,28 +318,28 @@ class PaymentService {
             int.parse(responseData['data']['expiresDateMs']),
             isUtc: true,
           );
-          final bool notExpired = DateTime.now().isBefore(expirationTime);
+          final bool notExpired = now.isBefore(expirationTime);
           if (kDebugMode) {
             printY(
-              '[DEV-LOG] [PaymentService] ${notExpired ? "notExpired" : "expired"} ${DateTime.now().toIso8601String()}(now) ${notExpired ? "<" : ">"} ${expirationTime.toIso8601String()}(exp) ${purchaseDetails.purchaseID}',
+              '[DEV-LOG] [PaymentService] ${notExpired ? "notExpired" : "expired"} ${now.toIso8601String()}(now) ${notExpired ? "<" : ">"} ${expirationTime.toIso8601String()}(exp) ${purchaseDetails.purchaseID}',
             );
           }
           _storePremiumExpiration(
             cachedProductId: purchaseDetails.productID,
             premiumExpiration: expirationTime,
-            lastReceiptValidation: DateTime.now(),
+            lastReceiptValidation: now,
           );
-          return notExpired;
+          return notExpired || subscriptionExtended;
         } else {
           if (response.statusCode == 400) {
             _storePremiumExpiration(cachedProductId: null, premiumExpiration: null, lastReceiptValidation: null);
           }
           printY('[DEV-LOG] [PaymentService] payment verification ${response.statusCode} ${response.body}');
-          return false;
+          return expiredOrExtended;
         }
       } catch (e) {
         printR("[DEV-LOG] [PaymentService] payment verification error: $e");
-        return false;
+        return expiredOrExtended;
       }
     }
     return false;
@@ -412,6 +430,7 @@ class PaymentService {
     final response = await _inAppPurchase.queryProductDetails(_allProductIds);
 
     if (response.error != null) {
+      printR(response.error);
       _loading = false;
       _queryProductError = response.error!.message;
       _allProducts = response.productDetails;
@@ -494,6 +513,7 @@ class PaymentService {
     if (!_isBuying) {
       _isBuying = true;
       try {
+        printY("buyNonConsumable: $productDetails");
         _inAppPurchase.buyNonConsumable(purchaseParam: PurchaseParam(productDetails: productDetails));
       } catch (e) {
         _isBuying = false;

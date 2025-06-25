@@ -48,9 +48,7 @@ mixin class InitialServiceMixin {
     _initDone.close();
   }
 
-  Future<TrackingStatus> _waitForConsent({
-    required List<String>? testDeviceIds,
-  }) async {
+  Future<TrackingStatus> _waitForConsent({required List<String>? testDeviceIds}) async {
     final Completer<void> completer = Completer<void>();
     TrackingStatus trackingStatus = TrackingStatus.notDetermined;
     try {
@@ -135,13 +133,8 @@ mixin class InitialServiceMixin {
     final int start = DateTime.now().millisecondsSinceEpoch;
     try {
       await MobileAds.instance.initialize();
-      await MobileAds.instance.updateRequestConfiguration(
-        RequestConfiguration(testDeviceIds: testDeviceIds),
-      );
-      initRewardedAd(
-        adUnitId: rewardedAdUnitId,
-        loadingTicks: loadingTicksRewardedAd,
-      );
+      await MobileAds.instance.updateRequestConfiguration(RequestConfiguration(testDeviceIds: testDeviceIds));
+      initRewardedAd(adUnitId: rewardedAdUnitId, loadingTicks: loadingTicksRewardedAd);
       initInterstitialAd(
         adUnitId: interstitialAdUnitId,
         loadingTicks: loadingTicksInterstitialAd,
@@ -169,6 +162,7 @@ mixin class InitialServiceMixin {
     required Set<String> allProductIds,
     required Set<String> premiumProductIds,
     Duration? receiptValidationChecking,
+    Duration? iosSubscriptionExtension,
     PaymentVerifyCallback? verifyPurchaseCallback,
     int restoringOnStartTicks = 5,
   }) async {
@@ -184,6 +178,7 @@ mixin class InitialServiceMixin {
           premiumProductIds: premiumProductIds,
           verifyPurchaseCallback: verifyPurchaseCallback,
           receiptValidationChecking: receiptValidationChecking,
+          iosSubscriptionExtension: iosSubscriptionExtension,
           restoringOnStartTicks: restoringOnStartTicks,
         );
         await PaymentService.instance.loadProducts();
@@ -217,30 +212,31 @@ mixin class InitialServiceMixin {
     const String iOSRewardedTestId = 'ca-app-pub-3940256099942544/1712485313';
 
     final FutureGroup<void> futureGroup = FutureGroup();
-    futureGroup.add(initPurchases(
-      activeProductIds: {},
-      iosSubscriptionProductIds: {},
-      allProductIds: {},
-      premiumProductIds: {},
-      verifyPurchaseCallback: (_) => Future<bool>.value(true),
-      receiptValidationChecking: null,
-    ));
-    futureGroup.add(initAdsParameters(
-      interstitialAdUnitId: Platform.isIOS ? iOSInterstitalTestId : androidInterstitalTestId,
-      rewardedAdUnitId: Platform.isIOS ? iOSRewardedTestId : androidRewardedTestId,
-      testDeviceIds: [],
-    ));
+    futureGroup.add(
+      initPurchases(
+        activeProductIds: {},
+        iosSubscriptionProductIds: {},
+        allProductIds: {},
+        premiumProductIds: {},
+        verifyPurchaseCallback: (_) => Future<bool>.value(true),
+        receiptValidationChecking: null,
+        iosSubscriptionExtension: null,
+      ),
+    );
+    futureGroup.add(
+      initAdsParameters(
+        interstitialAdUnitId: Platform.isIOS ? iOSInterstitalTestId : androidInterstitalTestId,
+        rewardedAdUnitId: Platform.isIOS ? iOSRewardedTestId : androidRewardedTestId,
+        testDeviceIds: [],
+      ),
+    );
     futureGroup.close();
     await futureGroup.future;
   }
 
   /// Execute it after splash dropping. Should be overwritten and contain [showConsent].
   Future<void> afterSplashInitilize() async {
-    await showConsent(
-      skipConsentAndAd: false,
-      showAdAfterConsent: false,
-      testDeviceIds: [],
-    );
+    await showConsent(skipConsentAndAd: false, showAdAfterConsent: false, testDeviceIds: []);
     initDone();
   }
 }
