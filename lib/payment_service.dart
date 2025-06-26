@@ -3,11 +3,11 @@ import 'dart:convert' show jsonDecode, jsonEncode;
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:in_app_purchase_storekit/in_app_purchase_storekit.dart';
 import 'package:in_app_purchase_storekit/store_kit_wrappers.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import 'interstitial_ad.dart';
 import 'utils.dart';
@@ -77,6 +77,8 @@ class PaymentService {
   Duration _iosSubscriptionExtension = Duration(days: 0);
   Duration get iosSubscriptionExtension => _iosSubscriptionExtension;
 
+  final _secure = const FlutterSecureStorage();
+
   /// - [activeProductIds] - all products that could be bought in app at this moment
   /// - [allProductIds] - all products to restoring (also depracated)
   /// - [iosSubscriptionProductIds] - all ios subscription products (validated by our server)
@@ -101,21 +103,27 @@ class PaymentService {
     _receiptValidationChecking = receiptValidationChecking ?? _receiptValidationChecking;
     _iosSubscriptionExtension = iosSubscriptionExtension ?? _iosSubscriptionExtension;
     _productIdsProvided = true;
+
     if (Platform.isIOS) {
-      final prefs = await SharedPreferences.getInstance();
-      final int? premiumExpirationMillis = prefs.getInt(_premiumExpirationMillisKey);
-      _premiumExpiration = premiumExpirationMillis == null
+      final results = await Future.wait<String?>([
+        _secure.read(key: _premiumExpirationMillisKey),
+        _secure.read(key: _lastReceiptValidationMillisKey),
+        _secure.read(key: _cachedProductIdKey),
+      ]);
+      _premiumExpiration = results[0] == null
           ? null
-          : DateTime.fromMillisecondsSinceEpoch(premiumExpirationMillis, isUtc: true);
-      final int? lastReceiptValidationMillis = prefs.getInt(_lastReceiptValidationMillisKey);
-      _lastReceiptValidation = lastReceiptValidationMillis == null
+          : DateTime.fromMillisecondsSinceEpoch(int.parse(results[0]!), isUtc: true);
+      _lastReceiptValidation = results[1] == null
           ? null
-          : DateTime.fromMillisecondsSinceEpoch(lastReceiptValidationMillis, isUtc: true);
-      _cachedProductId = prefs.getString(_cachedProductIdKey);
+          : DateTime.fromMillisecondsSinceEpoch(int.parse(results[1]!), isUtc: true);
+      _cachedProductId = results[2];
+
       printY(
         "[DEV-LOG] [PaymentService] lastReceiptValidation:$_lastReceiptValidation premiumExpiration:$_premiumExpiration cachedProductId:$_cachedProductId",
       );
-      if (_cachedProductId != null && _premiumExpiration!.isAfter(DateTime.now())) {
+      if (_cachedProductId != null &&
+          _premiumExpiration != null &&
+          _premiumExpiration!.isAfter(DateTime.now().subtract(_iosSubscriptionExtension))) {
         printY("[DEV-LOG] [PaymentService] deliverCachedProduct cachedProductId:$_cachedProductId");
         _deliverCachedProduct(_cachedProductId!);
       }
@@ -301,7 +309,7 @@ class PaymentService {
       // refresh payment verification but approve payment if it expired before subscription extension
       final bool expiredOrExtended = false || subscriptionExtended;
       try {
-        const String url = 'https://apis.netigen.eu/api/payments/appstore2';
+        const String url = 'https://apis.mybackend.com/api/payments/appstore2';
         final int beforeFetch = DateTime.now().millisecondsSinceEpoch;
 
         // TODO: add localVerification
@@ -381,6 +389,7 @@ class PaymentService {
     _purchases.add(purchaseDetails);
     _boughtProductIdsStreamController.add(boughtProductIds);
     _paymentStatusStreamController.add(PaymentStatus.completed);
+    _isBuying = false;
   }
 
   void _deliverCachedProduct(String productId) {
@@ -399,6 +408,7 @@ class PaymentService {
     );
     _boughtProductIdsStreamController.add(boughtProductIds);
     _paymentStatusStreamController.add(PaymentStatus.completed);
+    _isBuying = false;
   }
 
   void _handleError(IAPError? error) {
@@ -433,7 +443,7 @@ class PaymentService {
     if (Platform.isIOS && !_delegateSet) {
       final InAppPurchaseStoreKitPlatformAddition iosPlatformAddition = _inAppPurchase
           .getPlatformAddition<InAppPurchaseStoreKitPlatformAddition>();
-      await iosPlatformAddition.setDelegate(ExamplePaymentQueueDelegate());
+      await iosPlatformAddition.setDelegate(SKPaymentQueueDelegate());
       _delegateSet = true;
     }
 
@@ -542,9 +552,9 @@ class PaymentService {
   List<PurchaseDetails> _filterPremiumPurchases(List<PurchaseDetails> purchases) =>
       purchases.where((element) => _premiumProductIds.contains(element.productID)).toList();
 
-  final String _cachedProductIdKey = "cachedProductId";
-  final String _premiumExpirationMillisKey = "premiumExpirationMillis";
-  final String _lastReceiptValidationMillisKey = "lastReceiptValidationMillis";
+  static const String _cachedProductIdKey = "cachedProductId";
+  static const String _premiumExpirationMillisKey = "premiumExpirationMillis";
+  static const String _lastReceiptValidationMillisKey = "lastReceiptValidationMillis";
   Future<void> _storePremiumExpiration({
     required String? cachedProductId,
     required DateTime? premiumExpiration,
@@ -553,31 +563,33 @@ class PaymentService {
     _cachedProductId = cachedProductId;
     _premiumExpiration = premiumExpiration;
     _lastReceiptValidation = lastReceiptValidation;
-    final prefs = await SharedPreferences.getInstance();
-    if (premiumExpiration == null) {
-      prefs.remove(_premiumExpirationMillisKey);
-    } else {
-      prefs.setInt(_premiumExpirationMillisKey, premiumExpiration.millisecondsSinceEpoch);
-    }
-    if (lastReceiptValidation == null) {
-      prefs.remove(_lastReceiptValidationMillisKey);
-    } else {
-      prefs.setInt(_lastReceiptValidationMillisKey, lastReceiptValidation.millisecondsSinceEpoch);
-    }
-    if (cachedProductId == null) {
-      prefs.remove(_cachedProductIdKey);
-    } else {
-      prefs.setString(_cachedProductIdKey, cachedProductId);
-    }
+
+    final List<Future<void>> futures = [
+      premiumExpiration == null
+          ? _secure.delete(key: _premiumExpirationMillisKey)
+          : _secure.write(key: _premiumExpirationMillisKey, value: premiumExpiration.millisecondsSinceEpoch.toString()),
+      lastReceiptValidation == null
+          ? _secure.delete(key: _lastReceiptValidationMillisKey)
+          : _secure.write(
+              key: _lastReceiptValidationMillisKey,
+              value: lastReceiptValidation.millisecondsSinceEpoch.toString(),
+            ),
+      cachedProductId == null
+          ? _secure.delete(key: _cachedProductIdKey)
+          : _secure.write(key: _cachedProductIdKey, value: cachedProductId),
+    ];
+
+    await Future.wait(futures);
   }
 }
 
-/// Example implementation of the
 /// [`SKPaymentQueueDelegate`](https://developer.apple.com/documentation/storekit/skpaymentqueuedelegate?language=objc).
 ///
 /// The payment queue delegate can be implementated to provide information
 /// needed to complete transactions.
-class ExamplePaymentQueueDelegate implements SKPaymentQueueDelegateWrapper {
+///
+/// source: (https://github.com/flutter/packages/blob/main/packages/in_app_purchase/in_app_purchase_storekit/example/lib/example_payment_queue_delegate.dart)
+class SKPaymentQueueDelegate implements SKPaymentQueueDelegateWrapper {
   @override
   bool shouldContinueTransaction(SKPaymentTransactionWrapper transaction, SKStorefrontWrapper storefront) {
     return true;

@@ -13,6 +13,7 @@ dependencies:
   async:
   flutter:
     sdk: flutter
+  flutter_secure_storage: ^9.2.4
   google_mobile_ads: ^6.0.0
   http:
   in_app_purchase: ^3.2.3
@@ -20,7 +21,6 @@ dependencies:
   # package_info_plus >=6.0.0 <8.0.0 to be compatible with wakelock_plus 1.2.4
   # - fixed in wakelock_plus 1.2.5
   package_info_plus: ^8.3.0
-  shared_preferences: ^2.5.3
   webview_flutter: ^4.9.0
   webview_flutter_android: ^4.0.0
   webview_flutter_wkwebview: ^3.18.4
