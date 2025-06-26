@@ -3,6 +3,7 @@ import 'dart:convert' show jsonDecode, jsonEncode;
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart' show PlatformException;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:in_app_purchase/in_app_purchase.dart';
@@ -529,18 +530,25 @@ class PaymentService {
     }
   }
 
-  void buyNonConsumable(ProductDetails productDetails) {
-    if (!_isBuying) {
-      _isBuying = true;
-      try {
-        printY("buyNonConsumable: $productDetails");
-        _inAppPurchase.buyNonConsumable(purchaseParam: PurchaseParam(productDetails: productDetails));
-      } catch (e) {
-        _isBuying = false;
-        printR("[DEV-LOG] [PaymentService] buyNonConsumable.error $e");
+  Future<void> buyNonConsumable(ProductDetails productDetails) async {
+    if (_isBuying) {
+      printY('[DEV-LOG] [PaymentService] _isBuying: $_isBuying');
+      return;
+    }
+
+    _isBuying = true;
+    try {
+      printY("buyNonConsumable: ${productDetails.runtimeType} ${productDetails.id}");
+      await _inAppPurchase.buyNonConsumable(purchaseParam: PurchaseParam(productDetails: productDetails));
+    } catch (e) {
+      if (e is PlatformException) {
+        if (e.code.contains('cancelled')) {
+          _paymentStatusStreamController.add(PaymentStatus.canceled);
+        }
       }
-    } else {
-      printY("[DEV-LOG] [PaymentService] _isBuying:$_isBuying");
+      printR("[DEV-LOG] [PaymentService] buyNonConsumable.error $e");
+    } finally {
+      _isBuying = false;
     }
   }
 
