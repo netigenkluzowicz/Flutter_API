@@ -39,7 +39,7 @@ mixin class InitialServiceMixin {
   int get purchaseRestoreTime => _purchaseRestoreTime;
   int get purchaseCheckPremiumTime => _purchaseCheckPremiumTime;
 
-  final StreamController<bool> _initDone = StreamController<bool>()..add(false);
+  final StreamController<bool> _initDone = StreamController<bool>.broadcast()..add(false);
 
   /// helpful in detecting when to display app content after [afterSplashInitilize]
   Stream<bool> get initDoneStream => _initDone.stream;

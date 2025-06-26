@@ -42,22 +42,8 @@ class PaymentService {
     } else {
       enableInterstitialAd();
     }
-
-    _boughtProductIdsStreamController = StreamController<List<String>>()..add(boughtProductIds);
-    _paymentStatusStreamController = StreamController<PaymentStatus>()..add(PaymentStatus.idle);
-
-    _subscription = _inAppPurchase.purchaseStream.listen(
-      _listenToPurchaseUpdated,
-      onDone: () {
-        printY("[DEV-LOG] [PaymentService listener] onDone");
-        _subscription.cancel();
-      },
-      onError: (error) {
-        printR("[DEV-LOG] [PaymentService listener] onError");
-        printR(error);
-        // handle error here.
-      },
-    );
+    _boughtProductIdsStreamController = StreamController<List<String>>.broadcast()..add(boughtProductIds);
+    _paymentStatusStreamController = StreamController<PaymentStatus>.broadcast()..add(PaymentStatus.idle);
   }
 
   PaymentVerifyCallback _verifyPurchaseCallbackAlwaysTrue = (_) => Future<bool>.value(true);
@@ -129,12 +115,25 @@ class PaymentService {
         _deliverCachedProduct(_cachedProductId!);
       }
     }
+
+    //TODO: IMPORTANT purchaseStream.listen on ios returns a series of arrays of length one at a time for one purchased but renewed subscription
+    _subscription ??= _inAppPurchase.purchaseStream.listen(
+      _listenToPurchaseUpdated,
+      onDone: () {
+        printY("[DEV-LOG] [PaymentService listener] onDone");
+        _completeInitialRestoring(source: "onDone");
+      },
+      onError: (error) {
+        printR("[DEV-LOG] [PaymentService listener] onError");
+        printR(error);
+        _completeInitialRestoring(source: "onError");
+      },
+    );
   }
 
-  late StreamSubscription<List<PurchaseDetails>> _subscription;
+  StreamSubscription<List<PurchaseDetails>>? _subscription;
 
-  /// flag to wait for
-  bool _restoreExecuted = false;
+  final Completer<void> _stopWaitingForInitialRestoringCompleter = Completer<void>();
   List<ProductDetails> _allProducts = <ProductDetails>[];
   List<String> _notFoundIds = <String>[];
   final List<PurchaseDetails> _purchases = <PurchaseDetails>[];
@@ -176,6 +175,7 @@ class PaymentService {
   final _inAppPurchase = InAppPurchase.instance;
 
   Future<void> _listenToPurchaseUpdated(List<PurchaseDetails> purchaseDetailsList) async {
+    printY("[DEV-LOG] [PaymentService] purchaseDetailsList empty");
     if (purchaseDetailsList.isEmpty) return;
 
     for (PurchaseDetails p in purchaseDetailsList) {
@@ -235,6 +235,19 @@ class PaymentService {
 
     final PurchaseDetails? iosSubPurchaseDetails = _getIosPurchaseToRemoteValidation(purchaseDetailsList);
 
+    if (kDebugMode) {
+      final Map<String, dynamic> data = iosSubPurchaseDetails != null
+          ? jsonDecode(iosSubPurchaseDetails.verificationData.localVerificationData)
+          : {};
+      final expireDate = DateTime.fromMillisecondsSinceEpoch(data["expiresDate"]);
+      printY(
+        "_listen ${purchaseDetailsList.length} t:${iosSubPurchaseDetails?.transactionDate} "
+        "id:${iosSubPurchaseDetails?.purchaseID} p:${DateTime.fromMillisecondsSinceEpoch(data["purchaseDate"])} "
+        "exp:$expireDate(${data["expiresDate"].runtimeType}) ${iosSubPurchaseDetails?.status} ${data["expiresDate"]} (${DateTime.now().isBefore(expireDate) ? "correct" : "expired"}) "
+        "l:${iosSubPurchaseDetails?.verificationData.localVerificationData.length} \n\n${iosSubPurchaseDetails?.verificationData.localVerificationData}\n\n",
+      );
+    }
+
     if (iosSubPurchaseDetails != null) {
       _isBuying = false;
       if (!boughtProductIds.contains(iosSubPurchaseDetails.productID)) {
@@ -249,14 +262,16 @@ class PaymentService {
       }
     }
 
+    _completeInitialRestoring(source: "entire purchaseDetailsList checked");
     for (PurchaseDetails p in purchaseDetailsList) {
-      if (p.pendingCompletePurchase) {
+      if (Platform.isIOS || (Platform.isAndroid && p.pendingCompletePurchase)) {
         await _inAppPurchase.completePurchase(p);
       }
     }
   }
 
   PurchaseDetails? _getIosPurchaseToRemoteValidation(List<PurchaseDetails> sortedPurchaseDetailsList) {
+    if (sortedPurchaseDetailsList.isEmpty) return null;
     List<PurchaseDetails> filtered = sortedPurchaseDetailsList
         .where(
           (purchaseDetails) =>
@@ -310,7 +325,8 @@ class PaymentService {
       // refresh payment verification but approve payment if it expired before subscription extension
       final bool expiredOrExtended = false || subscriptionExtended;
       try {
-        const String url = 'https://apis.mybackend.com/api/payments/appstore2';
+        const String url = 'https://apis.netigen.eu/api/payments/appstore2';
+        // const String url = 'http://192.168.1.203:1337/api/payments/appstore2';
         final int beforeFetch = DateTime.now().millisecondsSinceEpoch;
 
         // TODO: add localVerification
@@ -391,6 +407,7 @@ class PaymentService {
     _boughtProductIdsStreamController.add(boughtProductIds);
     _paymentStatusStreamController.add(PaymentStatus.completed);
     _isBuying = false;
+    _completeInitialRestoring(source: "_deliverProduct");
   }
 
   void _deliverCachedProduct(String productId) {
@@ -410,6 +427,7 @@ class PaymentService {
     _boughtProductIdsStreamController.add(boughtProductIds);
     _paymentStatusStreamController.add(PaymentStatus.completed);
     _isBuying = false;
+    _completeInitialRestoring(source: "_deliverCachedProduct");
   }
 
   void _handleError(IAPError? error) {
@@ -468,6 +486,17 @@ class PaymentService {
     }
   }
 
+  void _completeInitialRestoring({bool timeout = false, required String source}) {
+    if (!_stopWaitingForInitialRestoringCompleter.isCompleted) {
+      printY("_completeInitialRestoring: $source");
+      _initialRestoringTimeouted = timeout;
+      _stopWaitingForInitialRestoringCompleter.complete();
+    }
+  }
+
+  bool get initialRestoringTimeouted => _initialRestoringTimeouted;
+  bool _initialRestoringTimeouted = false;
+
   /// return bool if restore is successfull
   Future<bool> restorePurchases() async {
     if (!_productIdsProvided) {
@@ -483,6 +512,7 @@ class PaymentService {
       printY("[DEV-LOG] PaymentService.restorePurchases took ${end - start}ms");
       return true;
     } catch (e) {
+      _completeInitialRestoring(source: "restorePurchases error");
       printY(e);
       if (e is SKError) printR("restorePurchases ${e.code} ${e.domain} ${e.userInfo}");
       return false;
@@ -495,26 +525,20 @@ class PaymentService {
           .getPlatformAddition<InAppPurchaseStoreKitPlatformAddition>();
       iosPlatformAddition.setDelegate(null);
     }
-    _subscription.cancel();
+    _subscription?.cancel();
     _boughtProductIdsStreamController.close();
     _paymentStatusStreamController.close();
   }
 
   /// wait for PurchaseStatus.restored no longer than _restoringOnStartTicks * 100ms
   Future<void> waitForPurchaseRestoring() async {
-    printY("[DEV-LOG] PaymentService.checkPremiumUserOnStart STARTED");
-    int tick = 0;
-    final start = DateTime.now().millisecondsSinceEpoch;
-    await Future.doWhile(
-      () => Future.delayed(const Duration(milliseconds: 100), () {
-        tick++;
-        printY("[DEV-LOG] waiting for checkPremiumUserOnStart ${tick * 100}ms");
-        if (tick >= _restoringOnStartTicks) _restoreExecuted = true;
-      }).then((_) => !_restoreExecuted),
-    );
-    final end = DateTime.now().millisecondsSinceEpoch;
-
-    printY("[DEV-LOG] PaymentService.checkPremiumUserOnStart took ${end - start}ms");
+    if (_stopWaitingForInitialRestoringCompleter.isCompleted) return;
+    final limit = Duration(milliseconds: _restoringOnStartTicks * 100);
+    try {
+      await _stopWaitingForInitialRestoringCompleter.future.timeout(limit);
+    } on TimeoutException {
+      _completeInitialRestoring(timeout: true, source: "timeout");
+    }
   }
 
   Future<void> reloadPurchases() async {
