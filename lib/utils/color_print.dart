@@ -1,28 +1,49 @@
 part of '../utils.dart';
 
 /// red (iOS 🔴)
-void printR(Object? object) => _print(object.toString(), "R");
+void printR(Object? object) {
+  if (kReleaseMode) return;
+  _print(object, "R");
+}
 
 /// green (iOS 🟢)
-void printG(Object? object) => _print(object.toString(), "G");
+void printG(Object? object) {
+  if (kReleaseMode) return;
+  _print(object, "G");
+}
 
 /// yellow (iOS 🟡)
-void printY(Object? object) => _print(object.toString(), "Y");
+void printY(Object? object) {
+  if (kReleaseMode) return;
+  _print(object, "Y");
+}
 
 /// blue (iOS 🔵)
-void printB(Object? object) => _print(object.toString(), "B");
+void printB(Object? object) {
+  if (kReleaseMode) return;
+  _print(object, "B");
+}
 
 /// magenta (iOS 🟥)
-void printM(Object? object) => _print(object.toString(), "M");
+void printM(Object? object) {
+  if (kReleaseMode) return;
+  _print(object, "M");
+}
 
 /// cyan (iOS 🟨)
-void printC(Object? object) => _print(object.toString(), "C");
+void printC(Object? object) {
+  if (kReleaseMode) return;
+  _print(object, "C");
+}
 
 /// white (iOS ⚪)
-void printW(Object? object) => _print(object.toString(), "W");
-
-void _print(String text, String color) {
+void printW(Object? object) {
   if (kReleaseMode) return;
+  _print(object, "W");
+}
+
+void _print(Object? object, String color) {
+  final String text = object.toString();
   if (kIsWeb || Platform.isAndroid) {
     switch (color) {
       case 'R':
