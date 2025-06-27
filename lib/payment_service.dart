@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert' show jsonDecode, jsonEncode;
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:flutter/services.dart' show PlatformException;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
@@ -36,7 +36,7 @@ class PaymentService {
   // make this a singleton class
   static final PaymentService instance = PaymentService._();
   PaymentService._() {
-    printW("[DEV-LOG] PaymentService constructor");
+    printW("PaymentService constructor");
     if (kInitialPremiumUser) {
       disableInterstitialAd();
     } else {
@@ -105,13 +105,13 @@ class PaymentService {
           : DateTime.fromMillisecondsSinceEpoch(int.parse(results[1]!), isUtc: true);
       _cachedProductId = results[2];
 
-      printY(
-        "[DEV-LOG] [PaymentService] lastReceiptValidation:$_lastReceiptValidation premiumExpiration:$_premiumExpiration cachedProductId:$_cachedProductId",
+      _infoLog(
+        "lastReceiptValidation:$_lastReceiptValidation premiumExpiration:$_premiumExpiration cachedProductId:$_cachedProductId",
       );
       if (_cachedProductId != null &&
           _premiumExpiration != null &&
           _premiumExpiration!.isAfter(DateTime.now().subtract(_iosSubscriptionExtension))) {
-        printY("[DEV-LOG] [PaymentService] deliverCachedProduct cachedProductId:$_cachedProductId");
+        _infoLog("deliverCachedProduct cachedProductId:$_cachedProductId");
         _deliverCachedProduct(_cachedProductId!);
       }
     }
@@ -120,12 +120,11 @@ class PaymentService {
     _subscription ??= _inAppPurchase.purchaseStream.listen(
       _listenToPurchaseUpdated,
       onDone: () {
-        printY("[DEV-LOG] [PaymentService listener] onDone");
+        _infoLog("purchaseStream.onDone");
         _completeInitialRestoring(source: "onDone");
       },
       onError: (error) {
-        printR("[DEV-LOG] [PaymentService listener] onError");
-        printR(error);
+        _errorLog("purchaseStream.onError $error");
         _completeInitialRestoring(source: "onError");
       },
     );
@@ -175,12 +174,13 @@ class PaymentService {
   final _inAppPurchase = InAppPurchase.instance;
 
   Future<void> _listenToPurchaseUpdated(List<PurchaseDetails> purchaseDetailsList) async {
-    printY("[DEV-LOG] [PaymentService] purchaseDetailsList empty");
-    if (purchaseDetailsList.isEmpty) return;
-
+    if (purchaseDetailsList.isEmpty) {
+      _infoLog("purchaseDetailsList empty");
+      return;
+    }
     for (PurchaseDetails p in purchaseDetailsList) {
       if (_iosSubscriptionProductIds.contains(p.productID)) continue;
-      printR("[DEV-LOG] [PaymentService] transactionDate: ${p.transactionDate} ${p.status} ${p.productID}");
+      _infoLog("transactionDate: ${p.transactionDate} ${p.status} ${p.productID}");
       switch (p.status) {
         case PurchaseStatus.pending:
           _setPending();
@@ -227,8 +227,8 @@ class PaymentService {
 
     if (kDebugMode) {
       for (PurchaseDetails x in purchaseDetailsList) {
-        printY(
-          "[DEV-LOG] [PaymentService]> ${x.productID} ${parseTransactionDate(x.transactionDate)} ${x.pendingCompletePurchase} ${x.purchaseID}",
+        _infoLog(
+          ">>> ${x.productID} ${parseTransactionDate(x.transactionDate)} ${x.pendingCompletePurchase} ${x.purchaseID}",
         );
       }
     }
@@ -240,7 +240,7 @@ class PaymentService {
           ? jsonDecode(iosSubPurchaseDetails.verificationData.localVerificationData)
           : {};
       final expireDate = DateTime.fromMillisecondsSinceEpoch(data["expiresDate"]);
-      printY(
+      _infoLog(
         "_listen ${purchaseDetailsList.length} t:${iosSubPurchaseDetails?.transactionDate} "
         "id:${iosSubPurchaseDetails?.purchaseID} p:${DateTime.fromMillisecondsSinceEpoch(data["purchaseDate"])} "
         "exp:$expireDate(${data["expiresDate"].runtimeType}) ${iosSubPurchaseDetails?.status} ${data["expiresDate"]} (${DateTime.now().isBefore(expireDate) ? "correct" : "expired"}) "
@@ -301,24 +301,18 @@ class PaymentService {
 
   Future<bool> _verifyIosSubscriptionPurchase(PurchaseDetails purchaseDetails) async {
     if (Platform.isIOS && _iosSubscriptionProductIds.contains(purchaseDetails.productID)) {
-      printY(
-        "[DEV-LOG] [PaymentService] purchaseID${purchaseDetails.purchaseID} _premiumExpiration $_premiumExpiration",
-      );
+      _infoLog("purchaseID${purchaseDetails.purchaseID} _premiumExpiration $_premiumExpiration");
       final now = DateTime.now();
       bool subscriptionExtended = false;
       if (_lastReceiptValidation != null &&
           DateTime.now().difference(_lastReceiptValidation!) < _receiptValidationChecking &&
           _premiumExpiration != null) {
         if (_premiumExpiration!.isAfter(now)) {
-          printY(
-            "[DEV-LOG] [PaymentService] ${purchaseDetails.productID} verified from local db ${now.difference(_lastReceiptValidation!)}",
-          );
+          _infoLog("${purchaseDetails.productID} verified from local db ${now.difference(_lastReceiptValidation!)}");
           return true;
         } else if (_premiumExpiration!.isAfter(now.subtract(_iosSubscriptionExtension))) {
           subscriptionExtended = true;
-          printY(
-            "[DEV-LOG] [PaymentService] ${purchaseDetails.productID} verified from local db ${now.difference(_lastReceiptValidation!)}",
-          );
+          _infoLog("${purchaseDetails.productID} verified from local db ${now.difference(_lastReceiptValidation!)}");
         }
       }
 
@@ -330,12 +324,12 @@ class PaymentService {
         final int beforeFetch = DateTime.now().millisecondsSinceEpoch;
 
         // TODO: add localVerification
-        // printY("localVerificationData: ${purchaseDetails.verificationData.localVerificationData}");
+        // _infoLog("localVerificationData: ${purchaseDetails.verificationData.localVerificationData}");
         // final Map<String, dynamic> localVerificationData = json.decode(
         //   purchaseDetails.verificationData.localVerificationData,
         // );
         // final DateTime expiresDate = DateTime.fromMillisecondsSinceEpoch(localVerificationData["expiresDate"]);
-        // printR("expiresDate $expiresDate expired:${now.isAfter(expiresDate)} now:$now");
+        // _infoLog("expiresDate $expiresDate expired:${now.isAfter(expiresDate)} now:$now");
         // if (now.isAfter(expiresDate)) return false;
 
         final response = await http.post(
@@ -346,17 +340,18 @@ class PaymentService {
 
         if (response.statusCode == 200) {
           final responseData = jsonDecode(response.body);
-          printW(
-            '[DEV-LOG] [PaymentService] payment verification response $responseData in ${DateTime.now().millisecondsSinceEpoch - beforeFetch}ms',
+          _infoLog(
+            'remote verification response $responseData in ${DateTime.now().millisecondsSinceEpoch - beforeFetch}ms',
           );
           final DateTime expirationTime = DateTime.fromMillisecondsSinceEpoch(
             int.parse(responseData['data']['expiresDateMs']),
             isUtc: true,
           );
+          final bool valid = bool.parse("${responseData['data']['valid']}");
           final bool notExpired = now.isBefore(expirationTime);
           if (kDebugMode) {
-            printY(
-              '[DEV-LOG] [PaymentService] ${notExpired ? "notExpired" : "expired"} ${now.toIso8601String()}(now) ${notExpired ? "<" : ">"} ${expirationTime.toIso8601String()}(exp) ${purchaseDetails.purchaseID}',
+            _infoLog(
+              'valid:$valid ${notExpired ? "NOTEXPIRED" : "EXPIRED"} ${now.toIso8601String()}(now) ${notExpired ? "<" : ">"} ${expirationTime.toIso8601String()}(exp) purchaseID:${purchaseDetails.purchaseID}',
             );
           }
           _storePremiumExpiration(
@@ -369,11 +364,11 @@ class PaymentService {
           if (response.statusCode == 400) {
             _storePremiumExpiration(cachedProductId: null, premiumExpiration: null, lastReceiptValidation: null);
           }
-          printY('[DEV-LOG] [PaymentService] payment verification ${response.statusCode} ${response.body}');
+          _infoLog('remote verification ${response.statusCode} ${response.body}');
           return expiredOrExtended;
         }
       } catch (e) {
-        printR("[DEV-LOG] [PaymentService] payment verification error: $e");
+        _errorLog("remote verify error: $e");
         return expiredOrExtended;
       }
     }
@@ -382,12 +377,12 @@ class PaymentService {
 
   Future<bool> _verifyPurchase(PurchaseDetails purchaseDetails) async {
     if (kDebugMode) {
-      printY("\n");
-      printY(
-        "[DEV-LOG] [PaymentService] VERIFY PURCHASE purchaseID ${purchaseDetails.purchaseID} productID ${purchaseDetails.productID} status ${purchaseDetails.status} ${purchaseDetails.transactionDate}",
+      debugPrint("\n");
+      _infoLog(
+        "VERIFY PURCHASE purchaseID ${purchaseDetails.purchaseID} productID ${purchaseDetails.productID} status ${purchaseDetails.status} ${purchaseDetails.transactionDate}",
       );
-      printY(
-        "[DEV-LOG] [PaymentService] transactionDate ${parseTransactionDate(purchaseDetails.transactionDate)} pendingCompletePurchase ${purchaseDetails.pendingCompletePurchase}\n",
+      _infoLog(
+        "transactionDate ${parseTransactionDate(purchaseDetails.transactionDate)} pendingCompletePurchase ${purchaseDetails.pendingCompletePurchase}\n",
       );
     }
 
@@ -431,13 +426,13 @@ class PaymentService {
   }
 
   void _handleError(IAPError? error) {
-    printR("[DEV-LOG] [PaymentService] _handleError code:${error?.code} message:${error?.message}");
+    _errorLog("_handleError $error");
     _paymentStatusStreamController.add(PaymentStatus.errored);
   }
 
   void _handleInvalidPurchase(PurchaseDetails purchaseDetails) {
     _paymentStatusStreamController.add(PaymentStatus.errored);
-    printY("[DEV-LOG] [PaymentService] _handleInvalidPurchase (NOT IMPLEMENTED) ${purchaseDetails.productID}");
+    _infoLog("_handleInvalidPurchase (NOT IMPLEMENTED) ${purchaseDetails.productID}");
   }
 
   void _setPending() {
@@ -449,9 +444,7 @@ class PaymentService {
 
   Future<void> loadProducts() async {
     if (!_productIdsProvided) {
-      throw ArgumentError(
-        "[DEV-LOG] [PaymentService] ERROR: Product ids not provided. Use PaymentService.initParameters",
-      );
+      throw ArgumentError("Product ids not provided. Use PaymentService.initParameters");
     }
     _isAvailable = await _inAppPurchase.isAvailable();
     if (!_isAvailable) {
@@ -469,7 +462,7 @@ class PaymentService {
     final response = await _inAppPurchase.queryProductDetails(_allProductIds);
 
     if (response.error != null) {
-      printR(response.error);
+      _handleError(response.error);
       _loading = false;
       _queryProductError = response.error!.message;
       _allProducts = response.productDetails;
@@ -479,16 +472,16 @@ class PaymentService {
 
     _allProducts = response.productDetails;
     _notFoundIds = response.notFoundIDs;
-    printM("productDetails: ${_allProducts.length}");
-    printM("notFoundIDs: ${_notFoundIds.length}");
+    _infoLog("productDetails: ${_allProducts.length}");
+    _infoLog("notFoundIDs: ${_notFoundIds.length}");
     for (var element in _allProducts) {
-      printM("${element.id} ${element.price}");
+      _infoLog("${element.id} ${element.price}");
     }
   }
 
   void _completeInitialRestoring({bool timeout = false, required String source}) {
     if (!_stopWaitingForInitialRestoringCompleter.isCompleted) {
-      printY("_completeInitialRestoring: $source");
+      _infoLog("_completeInitialRestoring: $source");
       _initialRestoringTimeouted = timeout;
       _stopWaitingForInitialRestoringCompleter.complete();
     }
@@ -500,21 +493,19 @@ class PaymentService {
   /// return bool if restore is successfull
   Future<bool> restorePurchases() async {
     if (!_productIdsProvided) {
-      throw ArgumentError(
-        "[DEV-LOG] [PaymentService] ERROR: Product ids not provided. Use PaymentService.initParameters",
-      );
+      throw ArgumentError("[PaymentService] ERROR: Product ids not provided. Use PaymentService.initParameters");
     }
     try {
-      printY("[DEV-LOG] PaymentService.restorePurchases STARTED with products: ${_allProducts.length}");
+      _infoLog("PaymentService.restorePurchases STARTED with products: ${_allProducts.length}");
       final start = DateTime.now().millisecondsSinceEpoch;
       await _inAppPurchase.restorePurchases();
       final end = DateTime.now().millisecondsSinceEpoch;
-      printY("[DEV-LOG] PaymentService.restorePurchases took ${end - start}ms");
+      _infoLog("PaymentService.restorePurchases took ${end - start}ms");
       return true;
     } catch (e) {
       _completeInitialRestoring(source: "restorePurchases error");
-      printY(e);
-      if (e is SKError) printR("restorePurchases ${e.code} ${e.domain} ${e.userInfo}");
+      _errorLog(e);
+      if (e is SKError) _errorLog("restorePurchases ${e.code} ${e.domain} ${e.userInfo}");
       return false;
     }
   }
@@ -547,22 +538,22 @@ class PaymentService {
       await loadProducts();
       await restorePurchases();
       final int time2 = DateTime.now().millisecondsSinceEpoch;
-      printY("[DEV-LOG] reloadPurchases in ${time2 - time1}ms");
+      _infoLog("reloadPurchases in ${time2 - time1}ms");
     } catch (e) {
-      printY(e);
-      if (e is SKError) printR("reloadPurchases ${e.code} ${e.domain} ${e.userInfo}");
+      _errorLog(e);
+      if (e is SKError) _errorLog("reloadPurchases ${e.code} ${e.domain} ${e.userInfo}");
     }
   }
 
   Future<void> buyNonConsumable(ProductDetails productDetails) async {
     if (_isBuying) {
-      printY('[DEV-LOG] [PaymentService] _isBuying: $_isBuying');
+      _infoLog('_isBuying:$_isBuying');
       return;
     }
 
     _isBuying = true;
     try {
-      printY("buyNonConsumable: ${productDetails.runtimeType} ${productDetails.id}");
+      _infoLog("buyNonConsumable: ${productDetails.runtimeType} ${productDetails.id}");
       await _inAppPurchase.buyNonConsumable(purchaseParam: PurchaseParam(productDetails: productDetails));
     } catch (e) {
       if (e is PlatformException) {
@@ -570,7 +561,7 @@ class PaymentService {
           _paymentStatusStreamController.add(PaymentStatus.canceled);
         }
       }
-      printR("[DEV-LOG] [PaymentService] buyNonConsumable.error $e");
+      _errorLog("buyNonConsumable $e");
     } finally {
       _isBuying = false;
     }
@@ -631,4 +622,14 @@ class SKPaymentQueueDelegate implements SKPaymentQueueDelegateWrapper {
   bool shouldShowPriceConsent() {
     return true;
   }
+}
+
+void _infoLog(Object? object) {
+  if (!kDebugMode) return;
+  printY("[PaymentService] $object");
+}
+
+void _errorLog(Object? object) {
+  if (!kDebugMode) return;
+  printR("[PaymentService] ⚠️ ERROR $object");
 }
