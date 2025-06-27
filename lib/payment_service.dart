@@ -14,6 +14,7 @@ import 'interstitial_ad.dart';
 import 'utils.dart';
 
 const bool kInitialPremiumUser = false;
+const bool kVerifyIosLocally = true;
 
 /// - idle
 /// - pending
@@ -36,7 +37,7 @@ class PaymentService {
   // make this a singleton class
   static final PaymentService instance = PaymentService._();
   PaymentService._() {
-    printW("PaymentService constructor");
+    _infoLog("constructor");
     if (kInitialPremiumUser) {
       disableInterstitialAd();
     } else {
@@ -128,6 +129,13 @@ class PaymentService {
         _completeInitialRestoring(source: "onError");
       },
     );
+
+    if (Platform.isIOS && !_delegateSet) {
+      final InAppPurchaseStoreKitPlatformAddition iosPlatformAddition = _inAppPurchase
+          .getPlatformAddition<InAppPurchaseStoreKitPlatformAddition>();
+      await iosPlatformAddition.setDelegate(SKPaymentQueueDelegate());
+      _delegateSet = true;
+    }
   }
 
   StreamSubscription<List<PurchaseDetails>>? _subscription;
@@ -158,6 +166,7 @@ class PaymentService {
   Stream<PaymentStatus> get paymentStatusStream => _paymentStatusStreamController.stream;
 
   ProductDetails? trialProductById(String id) {
+    //TODO: fix iOS trial product
     final List<ProductDetails> prods = _allProducts.where((p) => p.id == id).toList();
     if (Platform.isIOS && prods.length == 1) return prods[0];
     if (prods.length == 2) return prods[0];
@@ -178,6 +187,23 @@ class PaymentService {
       _infoLog("purchaseDetailsList empty");
       return;
     }
+
+    if (purchaseDetailsList.length > 1) {
+      purchaseDetailsList.sort((a, b) {
+        DateTime dateA = parseTransactionDate(a.transactionDate) ?? DateTime.fromMillisecondsSinceEpoch(0);
+        DateTime dateB = parseTransactionDate(b.transactionDate) ?? DateTime.fromMillisecondsSinceEpoch(0);
+        return dateB.compareTo(dateA);
+      });
+    }
+
+    if (kDebugMode) {
+      for (PurchaseDetails x in purchaseDetailsList) {
+        _infoLog(
+          ">>> ${x.productID} ${parseTransactionDate(x.transactionDate)} ${x.pendingCompletePurchase} ${x.purchaseID}",
+        );
+      }
+    }
+
     for (PurchaseDetails p in purchaseDetailsList) {
       if (_iosSubscriptionProductIds.contains(p.productID)) continue;
       _infoLog("transactionDate: ${p.transactionDate} ${p.status} ${p.productID}");
@@ -217,52 +243,37 @@ class PaymentService {
       }
     }
 
-    if (purchaseDetailsList.length > 1) {
-      purchaseDetailsList.sort((a, b) {
-        DateTime dateA = parseTransactionDate(a.transactionDate) ?? DateTime.fromMillisecondsSinceEpoch(0);
-        DateTime dateB = parseTransactionDate(b.transactionDate) ?? DateTime.fromMillisecondsSinceEpoch(0);
-        return dateB.compareTo(dateA);
-      });
-    }
-
-    if (kDebugMode) {
-      for (PurchaseDetails x in purchaseDetailsList) {
-        _infoLog(
-          ">>> ${x.productID} ${parseTransactionDate(x.transactionDate)} ${x.pendingCompletePurchase} ${x.purchaseID}",
-        );
-      }
-    }
-
-    final PurchaseDetails? iosSubPurchaseDetails = _getIosPurchaseToRemoteValidation(purchaseDetailsList);
-
-    if (kDebugMode) {
-      final Map<String, dynamic> data = iosSubPurchaseDetails != null
-          ? jsonDecode(iosSubPurchaseDetails.verificationData.localVerificationData)
-          : {};
-      final expireDate = DateTime.fromMillisecondsSinceEpoch(data["expiresDate"]);
-      _infoLog(
-        "_listen ${purchaseDetailsList.length} t:${iosSubPurchaseDetails?.transactionDate} "
-        "id:${iosSubPurchaseDetails?.purchaseID} p:${DateTime.fromMillisecondsSinceEpoch(data["purchaseDate"])} "
-        "exp:$expireDate(${data["expiresDate"].runtimeType}) ${iosSubPurchaseDetails?.status} ${data["expiresDate"]} (${DateTime.now().isBefore(expireDate) ? "correct" : "expired"}) "
-        "l:${iosSubPurchaseDetails?.verificationData.localVerificationData.length} \n\n${iosSubPurchaseDetails?.verificationData.localVerificationData}\n\n",
-      );
-    }
-
-    if (iosSubPurchaseDetails != null) {
-      _isBuying = false;
-      if (!boughtProductIds.contains(iosSubPurchaseDetails.productID)) {
-        final valid = await _verifyIosSubscriptionPurchase(iosSubPurchaseDetails);
-        if (valid) {
-          _deliverProduct(iosSubPurchaseDetails);
+    if (Platform.isIOS) {
+      final DateTime now = DateTime.now();
+      final List iosPurchasesToValidation = _getIosPurchasesToValidation(purchaseDetailsList);
+      for (PurchaseDetails p in iosPurchasesToValidation) {
+        if (kVerifyIosLocally) {
+          try {
+            final Map<String, dynamic> iosData = jsonDecode(p.verificationData.localVerificationData);
+            final DateTime expirationTime = DateTime.fromMillisecondsSinceEpoch(iosData["expiresDate"]);
+            if (expirationTime.isAfter(now.subtract(_iosSubscriptionExtension))) {
+              _infoLog("${p.productID} verified from localVerificationData $expirationTime");
+              _deliverProduct(p);
+              _storePremiumExpiration(
+                cachedProductId: p.productID,
+                premiumExpiration: expirationTime,
+                lastReceiptValidation: now,
+              );
+            }
+          } catch (e) {
+            _errorLog(e);
+          }
         } else {
-          _handleInvalidPurchase(iosSubPurchaseDetails);
+          final bool valid = await _verifyIosSubscriptionPurchase(p);
+          if (valid) {
+            _deliverProduct(p);
+          } else {
+            _handleInvalidPurchase(p);
+          }
         }
-      } else {
-        _paymentStatusStreamController.add(PaymentStatus.completed);
       }
     }
 
-    _completeInitialRestoring(source: "entire purchaseDetailsList checked");
     for (PurchaseDetails p in purchaseDetailsList) {
       if (Platform.isIOS || (Platform.isAndroid && p.pendingCompletePurchase)) {
         await _inAppPurchase.completePurchase(p);
@@ -270,18 +281,18 @@ class PaymentService {
     }
   }
 
-  PurchaseDetails? _getIosPurchaseToRemoteValidation(List<PurchaseDetails> sortedPurchaseDetailsList) {
-    if (sortedPurchaseDetailsList.isEmpty) return null;
-    List<PurchaseDetails> filtered = sortedPurchaseDetailsList
+  List<PurchaseDetails> _getIosPurchasesToValidation(List<PurchaseDetails> sortedPurchaseDetailsList) {
+    if (sortedPurchaseDetailsList.isEmpty) return [];
+    final List<PurchaseDetails> filtered = sortedPurchaseDetailsList
         .where(
           (purchaseDetails) =>
               _iosSubscriptionProductIds.contains(purchaseDetails.productID) &&
-              (purchaseDetails.status == PurchaseStatus.purchased || purchaseDetails.status == PurchaseStatus.restored),
+              (purchaseDetails.status == PurchaseStatus.purchased ||
+                  purchaseDetails.status == PurchaseStatus.restored) &&
+              !boughtProductIds.contains(purchaseDetails.productID),
         )
         .toList();
-
-    if (filtered.isEmpty) return null;
-    return filtered.first;
+    return filtered;
   }
 
   DateTime? parseTransactionDate(String? rawDate) {
@@ -323,15 +334,6 @@ class PaymentService {
         // const String url = 'http://192.168.1.203:1337/api/payments/appstore2';
         final int beforeFetch = DateTime.now().millisecondsSinceEpoch;
 
-        // TODO: add localVerification
-        // _infoLog("localVerificationData: ${purchaseDetails.verificationData.localVerificationData}");
-        // final Map<String, dynamic> localVerificationData = json.decode(
-        //   purchaseDetails.verificationData.localVerificationData,
-        // );
-        // final DateTime expiresDate = DateTime.fromMillisecondsSinceEpoch(localVerificationData["expiresDate"]);
-        // _infoLog("expiresDate $expiresDate expired:${now.isAfter(expiresDate)} now:$now");
-        // if (now.isAfter(expiresDate)) return false;
-
         final response = await http.post(
           Uri.parse(url),
           headers: {'Content-Type': 'application/json'},
@@ -354,16 +356,15 @@ class PaymentService {
               'valid:$valid ${notExpired ? "NOTEXPIRED" : "EXPIRED"} ${now.toIso8601String()}(now) ${notExpired ? "<" : ">"} ${expirationTime.toIso8601String()}(exp) purchaseID:${purchaseDetails.purchaseID}',
             );
           }
-          _storePremiumExpiration(
-            cachedProductId: purchaseDetails.productID,
-            premiumExpiration: expirationTime,
-            lastReceiptValidation: now,
-          );
+          if (valid) {
+            _storePremiumExpiration(
+              cachedProductId: purchaseDetails.productID,
+              premiumExpiration: expirationTime,
+              lastReceiptValidation: now,
+            );
+          }
           return notExpired || subscriptionExtended;
         } else {
-          if (response.statusCode == 400) {
-            _storePremiumExpiration(cachedProductId: null, premiumExpiration: null, lastReceiptValidation: null);
-          }
           _infoLog('remote verification ${response.statusCode} ${response.body}');
           return expiredOrExtended;
         }
@@ -452,13 +453,6 @@ class PaymentService {
       return;
     }
 
-    if (Platform.isIOS && !_delegateSet) {
-      final InAppPurchaseStoreKitPlatformAddition iosPlatformAddition = _inAppPurchase
-          .getPlatformAddition<InAppPurchaseStoreKitPlatformAddition>();
-      await iosPlatformAddition.setDelegate(SKPaymentQueueDelegate());
-      _delegateSet = true;
-    }
-
     final response = await _inAppPurchase.queryProductDetails(_allProductIds);
 
     if (response.error != null) {
@@ -496,11 +490,11 @@ class PaymentService {
       throw ArgumentError("[PaymentService] ERROR: Product ids not provided. Use PaymentService.initParameters");
     }
     try {
-      _infoLog("PaymentService.restorePurchases STARTED with products: ${_allProducts.length}");
+      _infoLog("restorePurchases STARTED with products: ${_allProducts.length}");
       final start = DateTime.now().millisecondsSinceEpoch;
       await _inAppPurchase.restorePurchases();
       final end = DateTime.now().millisecondsSinceEpoch;
-      _infoLog("PaymentService.restorePurchases took ${end - start}ms");
+      _infoLog("restorePurchases took ${end - start}ms");
       return true;
     } catch (e) {
       _completeInitialRestoring(source: "restorePurchases error");
@@ -515,6 +509,7 @@ class PaymentService {
       final InAppPurchaseStoreKitPlatformAddition iosPlatformAddition = _inAppPurchase
           .getPlatformAddition<InAppPurchaseStoreKitPlatformAddition>();
       iosPlatformAddition.setDelegate(null);
+      _delegateSet = false;
     }
     _subscription?.cancel();
     _boughtProductIdsStreamController.close();
@@ -579,27 +574,21 @@ class PaymentService {
   static const String _premiumExpirationMillisKey = "premiumExpirationMillis";
   static const String _lastReceiptValidationMillisKey = "lastReceiptValidationMillis";
   Future<void> _storePremiumExpiration({
-    required String? cachedProductId,
-    required DateTime? premiumExpiration,
-    required DateTime? lastReceiptValidation,
+    required String cachedProductId,
+    required DateTime premiumExpiration,
+    required DateTime lastReceiptValidation,
   }) async {
     _cachedProductId = cachedProductId;
     _premiumExpiration = premiumExpiration;
     _lastReceiptValidation = lastReceiptValidation;
 
     final List<Future<void>> futures = [
-      premiumExpiration == null
-          ? _secure.delete(key: _premiumExpirationMillisKey)
-          : _secure.write(key: _premiumExpirationMillisKey, value: premiumExpiration.millisecondsSinceEpoch.toString()),
-      lastReceiptValidation == null
-          ? _secure.delete(key: _lastReceiptValidationMillisKey)
-          : _secure.write(
-              key: _lastReceiptValidationMillisKey,
-              value: lastReceiptValidation.millisecondsSinceEpoch.toString(),
-            ),
-      cachedProductId == null
-          ? _secure.delete(key: _cachedProductIdKey)
-          : _secure.write(key: _cachedProductIdKey, value: cachedProductId),
+      _secure.write(key: _premiumExpirationMillisKey, value: premiumExpiration.millisecondsSinceEpoch.toString()),
+      _secure.write(
+        key: _lastReceiptValidationMillisKey,
+        value: lastReceiptValidation.millisecondsSinceEpoch.toString(),
+      ),
+      _secure.write(key: _cachedProductIdKey, value: cachedProductId),
     ];
 
     await Future.wait(futures);
