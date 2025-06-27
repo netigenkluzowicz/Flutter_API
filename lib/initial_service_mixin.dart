@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:app_tracking_transparency/app_tracking_transparency.dart';
-import 'package:async/async.dart';
 import 'package:flutter/foundation.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
@@ -211,8 +210,7 @@ mixin class InitialServiceMixin {
     const String androidRewardedTestId = 'ca-app-pub-3940256099942544/5224354917';
     const String iOSRewardedTestId = 'ca-app-pub-3940256099942544/1712485313';
 
-    final FutureGroup<void> futureGroup = FutureGroup();
-    futureGroup.add(
+    await Future.wait<void>([
       initPurchases(
         activeProductIds: {},
         iosSubscriptionProductIds: {},
@@ -222,16 +220,12 @@ mixin class InitialServiceMixin {
         receiptValidationChecking: null,
         iosSubscriptionExtension: null,
       ),
-    );
-    futureGroup.add(
       initAdsParameters(
         interstitialAdUnitId: Platform.isIOS ? iOSInterstitalTestId : androidInterstitalTestId,
         rewardedAdUnitId: Platform.isIOS ? iOSRewardedTestId : androidRewardedTestId,
         testDeviceIds: [],
       ),
-    );
-    futureGroup.close();
-    await futureGroup.future;
+    ]);
   }
 
   /// Execute it after splash dropping. Should be overwritten and contain [showConsent].

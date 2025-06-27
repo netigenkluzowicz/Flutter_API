@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart' show VoidCallback, kDebugMode;
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import 'utils.dart';
@@ -37,7 +37,7 @@ class _RewardedAdSingleton {
   RewardedAd? _rewardedAd;
   int _loadAttempts = 0;
   String? _adUnitId;
-  bool _loaded = false;
+  bool _isReady = false;
   int _loadingTicks = 25;
 
   void init({required String adUnitId, int? loadingTicks}) {
@@ -45,34 +45,52 @@ class _RewardedAdSingleton {
     if (loadingTicks != null) _loadingTicks = loadingTicks;
   }
 
+  bool _isLoading = false;
   Future<void> _createRewardedAd() async {
     if (_adUnitId == null) {
-      throw ArgumentError(
-        "[DEV-LOG] Missing _adUnitId in _RewardedAdSingleton. Execute _RewardedAdSingleton.instance.init()",
-      );
+      throw ArgumentError("Missing _adUnitId in _RewardedAdSingleton. Execute _RewardedAdSingleton.instance.init()");
     }
-    await RewardedAd.load(
-      adUnitId: _adUnitId!,
-      request: request,
-      rewardedAdLoadCallback: RewardedAdLoadCallback(
-        onAdLoaded: (RewardedAd ad) {
-          printR('[DEV-LOG] RewardedAd onAdLoaded');
-          _rewardedAd = ad;
-          _loadAttempts = 0;
-          _loaded = true;
-        },
-        onAdFailedToLoad: (LoadAdError error) async {
-          printR('[DEV-LOG] RewardedAd onAdFailedToLoad: $error.');
-          _loadAttempts += 1;
-          _rewardedAd = null;
-          _loaded = false;
-          if (_loadAttempts < _maxFailedLoadAttempts) {
-            await _createRewardedAd();
-          }
-        },
-      ),
-    );
-    await waitingOnLoad();
+    if (!_isLoading) {
+      _isLoading = true;
+      try {
+        await RewardedAd.load(
+          adUnitId: _adUnitId!,
+          request: request,
+          rewardedAdLoadCallback: RewardedAdLoadCallback(
+            onAdLoaded: (RewardedAd ad) {
+              _infoLog('onAdLoaded');
+              _rewardedAd = ad;
+              _loadAttempts = 0;
+              _isReady = true;
+              _isLoading = false;
+            },
+            onAdFailedToLoad: (LoadAdError error) async {
+              _loadAttempts += 1;
+              _errorLog('onAdFailedToLoad(attempt:$_loadAttempts) $error');
+              _disposeAd(_rewardedAd);
+              if (_loadAttempts < _maxFailedLoadAttempts) {
+                await Future.delayed(Duration(milliseconds: 200));
+                _isLoading = false;
+                _createRewardedAd();
+              } else {
+                _isLoading = false;
+              }
+            },
+          ),
+        );
+      } catch (e) {
+        _errorLog(e);
+      } finally {
+        _isLoading = false;
+      }
+      await _waitForLoad();
+    }
+  }
+
+  void _disposeAd(Ad? ad) {
+    ad?.dispose();
+    _rewardedAd = null;
+    _isReady = false;
   }
 
   Future<void> showRewardedAd({
@@ -85,32 +103,36 @@ class _RewardedAdSingleton {
       return;
     }
 
-    await _createRewardedAd();
+    if (_rewardedAd == null) await _createRewardedAd();
+    _loadAttempts = 0;
 
     if (_rewardedAd == null) {
-      printR('[DEV-LOG] Warning: attempt to show RewardedAd before loaded.');
+      _errorLog('attempt to show RewardedAd before loaded.');
       _executeCallback(onAdFailedToShowFullScreenContent);
       return;
     }
 
-    await _rewardedAd?.setImmersiveMode(true);
-    _rewardedAd?.fullScreenContentCallback = FullScreenContentCallback(
+    await _rewardedAd!.setImmersiveMode(true);
+
+    _rewardedAd?.fullScreenContentCallback = FullScreenContentCallback<RewardedAd>(
       onAdFailedToShowFullScreenContent: (RewardedAd ad, AdError error) {
-        printR('[DEV-LOG] RewardedAd onAdFailedToShowFullScreenContent: $error');
-        ad.dispose();
+        _errorLog('onAdFailedToShowFullScreenContent: $error');
+        _disposeAd(ad);
         _executeCallback(onAdFailedToShowFullScreenContent);
+      },
+      onAdDismissedFullScreenContent: (RewardedAd ad) {
+        _disposeAd(ad);
       },
     );
 
-    await _rewardedAd?.show(
-      onUserEarnedReward: (AdWithoutView ad, RewardItem _) {
-        printR('[DEV-LOG] RewardedAd onUserEarnedReward');
-        ad.dispose();
-        _loaded = false;
-        _rewardedAd = null;
-        onUserEarnedReward();
-      },
-    );
+    if (_rewardedAd != null) {
+      _rewardedAd!.show(
+        onUserEarnedReward: (AdWithoutView ad, RewardItem _) {
+          onUserEarnedReward();
+          _infoLog('onUserEarnedReward');
+        },
+      );
+    }
   }
 
   void _executeCallback(VoidCallback? cb) {
@@ -119,20 +141,41 @@ class _RewardedAdSingleton {
     }
   }
 
-  /// Waits for ad loading for up to 5s. Then stops loading.
-  Future<void> waitingOnLoad() async {
-    int tick = 0;
+  bool _waitingForLoad = false;
 
-    await Future.doWhile(
-      () => Future.delayed(const Duration(milliseconds: 200), () {
+  /// Waits for ad loading for up to 5s. Then stops loading.
+  Future<void> _waitForLoad() async {
+    if (!_waitingForLoad) {
+      _waitingForLoad = true;
+      const tickInterval = Duration(milliseconds: 200);
+      var tick = 0;
+
+      while (!_isReady && tick < _loadingTicks) {
+        await Future.delayed(tickInterval);
         tick++;
-        if (tick >= _loadingTicks) {
-          printY("[DEV-LOG] RewardedAd loading timed out after ${(_loadingTicks * 0.2).toStringAsFixed(1)}s.");
-          _rewardedAd?.dispose();
-          return;
-        }
-      }).then((_) => !_loaded && tick < _loadingTicks),
-    );
-    if (tick < _loadingTicks) printY("[DEV-LOG] RewardedAd loaded after ${(tick * 0.2).toStringAsFixed(1)}s");
+      }
+
+      final waitedSeconds = (tick * 0.2).toStringAsFixed(1);
+
+      if (_isReady) {
+        _infoLog('loaded after ${waitedSeconds}s');
+      } else {
+        _infoLog(
+          'loading timed out after '
+          '${(_loadingTicks * 0.2).toStringAsFixed(1)}s.',
+        );
+      }
+      _waitingForLoad = false;
+    }
   }
+}
+
+void _infoLog(Object? object) {
+  if (!kDebugMode) return;
+  printY("[RewardedAd] $object");
+}
+
+void _errorLog(Object? object) {
+  if (!kDebugMode) return;
+  printR("[RewardedAd] ⚠️ ERROR $object");
 }

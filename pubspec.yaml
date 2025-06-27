@@ -10,13 +10,12 @@ environment:
 dependencies:
   app_settings: ^6.1.1
   app_tracking_transparency: ^2.0.6
-  async:
   flutter:
     sdk: flutter
   flutter_secure_storage: ^9.2.4
   google_mobile_ads: ^6.0.0
   http:
-  in_app_purchase: ^3.2.3
+  in_app_purchase: 3.2.3
   in_app_purchase_storekit: 0.4.2
   # package_info_plus >=6.0.0 <8.0.0 to be compatible with wakelock_plus 1.2.4
   # - fixed in wakelock_plus 1.2.5
