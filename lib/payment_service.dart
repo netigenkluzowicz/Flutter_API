@@ -142,6 +142,7 @@ class PaymentService {
 
   final Completer<void> _stopWaitingForInitialRestoringCompleter = Completer<void>();
   List<ProductDetails> _allProducts = <ProductDetails>[];
+  final List<ProductDetails> _iosTrialProducts = <ProductDetails>[];
   List<String> _notFoundIds = <String>[];
   final List<PurchaseDetails> _purchases = <PurchaseDetails>[];
   bool _isAvailable = false;
@@ -152,6 +153,7 @@ class PaymentService {
 
   bool get premiumUser => _filterPremiumPurchases(_purchases).isNotEmpty;
   List<ProductDetails> get activeProducts => _filterActiveProducts(_allProducts);
+  List<String> get iosTrialProductsIds => _iosTrialProducts.map((p) => p.id).toList();
   List<String> get notFoundIds => _notFoundIds;
   List<PurchaseDetails> get purchases => _purchases;
   List<String> get boughtProductIds => _purchases.map((p) => p.productID).toList();
@@ -166,9 +168,14 @@ class PaymentService {
   Stream<PaymentStatus> get paymentStatusStream => _paymentStatusStreamController.stream;
 
   ProductDetails? trialProductById(String id) {
-    //TODO: fix iOS trial product
     final List<ProductDetails> prods = _allProducts.where((p) => p.id == id).toList();
-    if (Platform.isIOS && prods.length == 1) return prods[0];
+    if (Platform.isIOS) {
+      if (prods.isNotEmpty && iosTrialProductsIds.contains(id)) {
+        return prods[0];
+      } else {
+        return null;
+      }
+    }
     if (prods.length == 2) return prods[0];
     return null;
   }
@@ -461,15 +468,30 @@ class PaymentService {
       _queryProductError = response.error!.message;
       _allProducts = response.productDetails;
       _notFoundIds = response.notFoundIDs;
+      if (Platform.isIOS) {
+        await _loadIosTrailProducts(response.productDetails);
+      }
       return;
     }
 
     _allProducts = response.productDetails;
     _notFoundIds = response.notFoundIDs;
+    if (Platform.isIOS) {
+      await _loadIosTrailProducts(response.productDetails);
+    }
     _infoLog("productDetails: ${_allProducts.length}");
     _infoLog("notFoundIDs: ${_notFoundIds.length}");
     for (var element in _allProducts) {
       _infoLog("${element.id} ${element.price}");
+    }
+  }
+
+  Future<void> _loadIosTrailProducts(List<ProductDetails> productDetails) async {
+    for (ProductDetails p in productDetails) {
+      final bool eligible = await IosIntroTrial.isEligibleIos(p.id);
+      if (eligible) {
+        _iosTrialProducts.add(p);
+      }
     }
   }
 
