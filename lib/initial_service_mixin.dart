@@ -61,7 +61,7 @@ mixin class InitialServiceMixin {
         },
       );
     } catch (e) {
-      printR("[DEV-LOG] InitialServiceMixin.waitForConsent error: $e");
+      _errorLog("waitForConsent error: $e");
       completer.complete();
     }
     await completer.future;
@@ -77,7 +77,7 @@ mixin class InitialServiceMixin {
         },
       );
     } catch (e) {
-      printR("[DEV-LOG] InitialServiceMixin.waitForAdStart error: $e");
+      _errorLog("waitForAdStart error: $e");
       completer.complete();
     }
     return completer.future;
@@ -115,7 +115,7 @@ mixin class InitialServiceMixin {
         _createAdTime = afterCreate - afterConsent;
         _showAdTime = afterShow - afterCreate;
       } catch (e) {
-        printR("[DEV-LOG] InitialService._showConsentAndAd error: $e");
+        _errorLog("_showConsentAndAd error: $e");
       }
     }
   }
@@ -140,7 +140,7 @@ mixin class InitialServiceMixin {
         minIntervalBetweenAdsInSecs: minIntervalBetweenInterstitialAdsInSecs,
       );
     } catch (e) {
-      printR("[DEV-LOG] InitialService._initAds error: $e");
+      _errorLog("._initAds error: $e");
     }
     _adsInitTime = DateTime.now().millisecondsSinceEpoch - start;
   }
@@ -187,7 +187,7 @@ mixin class InitialServiceMixin {
         await PaymentService.instance.waitForPurchaseRestoring();
         time4 = DateTime.now().millisecondsSinceEpoch;
       } catch (e) {
-        printR("[DEV-LOG] InitialService._initPurchases error: $e");
+        _errorLog("_initPurchases error: $e");
       }
     }
     _productsLoadTime = time2 - time1;
@@ -233,4 +233,9 @@ mixin class InitialServiceMixin {
     await showConsent(skipConsentAndAd: false, showAdAfterConsent: false, testDeviceIds: []);
     initDone();
   }
+}
+
+void _errorLog(Object? object) {
+  if (!kDebugMode) return;
+  printR("[InitialServiceMixin] ⚠️ ERROR $object");
 }
