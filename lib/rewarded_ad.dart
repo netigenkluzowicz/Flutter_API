@@ -3,13 +3,12 @@ import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import 'utils.dart';
 
-const int _maxFailedLoadAttempts = 3;
-
 /// Must be used once before any [showRewardedAd].
 /// Sets [adUnitId] for RewardedAd.
 /// - [loadingTicks] - times 200ms is the maximum ad loading time; default 25 (5 seconds); specifies how many times to check if the ad has been loaded before aborting
-void initRewardedAd({required String adUnitId, int? loadingTicks}) =>
-    _RewardedAdSingleton.instance.init(adUnitId: adUnitId, loadingTicks: loadingTicks);
+void initRewardedAd({required String adUnitId, int? loadingTicks, int? maxFailedLoadAttempts}) => _RewardedAdSingleton
+    .instance
+    .init(adUnitId: adUnitId, loadingTicks: loadingTicks, maxFailedLoadAttempts: maxFailedLoadAttempts);
 
 /// Loads and shows RewardedAd. IMPORTANT: New RewardedAd isn't loaded after closing previous.
 /// Loading is stopped after 5s.
@@ -39,9 +38,11 @@ class _RewardedAdSingleton {
   String? _adUnitId;
   bool _isReady = false;
   int _loadingTicks = 25;
+  int _maxFailedLoadAttempts = 2;
 
-  void init({required String adUnitId, int? loadingTicks}) {
+  void init({required String adUnitId, int? loadingTicks, int? maxFailedLoadAttempts}) {
     _adUnitId = adUnitId;
+    _maxFailedLoadAttempts = maxFailedLoadAttempts ?? _maxFailedLoadAttempts;
     if (loadingTicks != null) _loadingTicks = loadingTicks;
   }
 

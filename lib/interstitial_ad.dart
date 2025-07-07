@@ -5,8 +5,6 @@ import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import 'utils.dart';
 
-const int _maxFailedLoadAttempts = 3;
-
 /// Must be used once before any [createInterstitialAd] or [showInterstitialAd].
 /// - [adUnitId] - sets adUnitId for all [InterstitialAd] requests
 /// - [minIntervalBetweenAdsInSecs] - sets minimal time interval between [InterstitialAd] requests, requests before this interval will be skipped, cannot be lower than 2s
@@ -17,11 +15,13 @@ Future<void> initInterstitialAd({
   int? minIntervalBetweenAdsInSecs,
   bool createAd = false,
   int? loadingTicks,
+  int? maxFailedLoadAttempts,
 }) async => await _InterstitialAdSingleton.instance.init(
   adUnitId: adUnitId,
   minIntervalBetweenAdsInSecs: minIntervalBetweenAdsInSecs,
   createAd: createAd,
   loadingTicks: loadingTicks,
+  maxFailedLoadAttempts: maxFailedLoadAttempts,
 );
 
 /// Loads an [InterstitialAd]. Stopped after 5s.
@@ -86,6 +86,7 @@ class _InterstitialAdSingleton {
   bool _isReady = false;
   bool _disabled = false;
   int _loadingTicks = 25;
+  int _maxFailedLoadAttempts = 2;
 
   void disable() => _disabled = true;
   void enable() => _disabled = false;
@@ -95,9 +96,11 @@ class _InterstitialAdSingleton {
     int? minIntervalBetweenAdsInSecs,
     bool createAd = false,
     int? loadingTicks,
+    int? maxFailedLoadAttempts,
   }) async {
     _adUnitId = adUnitId;
     _minIntervalBetweenAdsInSecs = minIntervalBetweenAdsInSecs;
+    _maxFailedLoadAttempts = maxFailedLoadAttempts ?? _maxFailedLoadAttempts;
     if (loadingTicks != null) _loadingTicks = loadingTicks;
     if (createAd == true) {
       await createInterstitialAd();

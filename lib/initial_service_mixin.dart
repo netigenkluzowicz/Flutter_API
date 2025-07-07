@@ -128,16 +128,22 @@ mixin class InitialServiceMixin {
     int loadingTicksRewardedAd = 25,
     int minIntervalBetweenInterstitialAdsInSecs = 60,
     required List<String>? testDeviceIds,
+    int? maxFailedLoadAttempts,
   }) async {
     final int start = DateTime.now().millisecondsSinceEpoch;
     try {
       await MobileAds.instance.initialize();
       await MobileAds.instance.updateRequestConfiguration(RequestConfiguration(testDeviceIds: testDeviceIds));
-      initRewardedAd(adUnitId: rewardedAdUnitId, loadingTicks: loadingTicksRewardedAd);
+      initRewardedAd(
+        adUnitId: rewardedAdUnitId,
+        loadingTicks: loadingTicksRewardedAd,
+        maxFailedLoadAttempts: maxFailedLoadAttempts,
+      );
       initInterstitialAd(
         adUnitId: interstitialAdUnitId,
         loadingTicks: loadingTicksInterstitialAd,
         minIntervalBetweenAdsInSecs: minIntervalBetweenInterstitialAdsInSecs,
+        maxFailedLoadAttempts: maxFailedLoadAttempts,
       );
     } catch (e) {
       _errorLog("._initAds error: $e");
