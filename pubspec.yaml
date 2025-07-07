@@ -1,6 +1,6 @@
 name: flutter_api
 description: Flutter API for app development.
-version: 3.32.4+3
+version: 3.32.4+4
 homepage:
 
 environment:
@@ -16,7 +16,7 @@ dependencies:
   google_mobile_ads: ^6.0.0
   http:
   in_app_purchase: 3.2.3
-  in_app_purchase_storekit: 0.4.2
+  in_app_purchase_storekit: 0.4.3
   # package_info_plus >=6.0.0 <8.0.0 to be compatible with wakelock_plus 1.2.4
   # - fixed in wakelock_plus 1.2.5
   package_info_plus: ^8.3.0
@@ -29,13 +29,5 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
-
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
-
-# The following section is specific to Flutter packages.
-flutter:
-  plugin:
-    platforms:
-      ios:
-        pluginClass: IntroOfferBridge

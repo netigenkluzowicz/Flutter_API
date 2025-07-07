@@ -7,8 +7,11 @@ import 'package:flutter/services.dart' show PlatformException;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:in_app_purchase/in_app_purchase.dart';
-import 'package:in_app_purchase_storekit/in_app_purchase_storekit.dart';
-import 'package:in_app_purchase_storekit/store_kit_wrappers.dart';
+import 'package:in_app_purchase_storekit/in_app_purchase_storekit.dart'
+    show InAppPurchaseStoreKitPlatformAddition, AppStoreProduct2Details;
+import 'package:in_app_purchase_storekit/store_kit_2_wrappers.dart' show SK2Product, SK2ProductType;
+import 'package:in_app_purchase_storekit/store_kit_wrappers.dart'
+    show SKError, SKPaymentQueueDelegateWrapper, SKPaymentTransactionWrapper, SKStorefrontWrapper;
 
 import 'interstitial_ad.dart';
 import 'utils.dart';
@@ -43,7 +46,7 @@ class PaymentService {
     } else {
       enableInterstitialAd();
     }
-    _boughtProductIdsStreamController = StreamController<List<String>>.broadcast()..add(boughtProductIds);
+    _boughtProductIdsStreamController = StreamController<List<String>>.broadcast()..add(boughtProductIds.toList());
     _paymentStatusStreamController = StreamController<PaymentStatus>.broadcast()..add(PaymentStatus.idle);
   }
 
@@ -153,10 +156,10 @@ class PaymentService {
 
   bool get premiumUser => _filterPremiumPurchases(_purchases).isNotEmpty;
   List<ProductDetails> get activeProducts => _filterActiveProducts(_allProducts);
-  List<String> get iosTrialProductsIds => _iosTrialProducts.map((p) => p.id).toList();
+  Set<String> get iosTrialProductsIds => _iosTrialProducts.map((p) => p.id).toSet();
   List<String> get notFoundIds => _notFoundIds;
   List<PurchaseDetails> get purchases => _purchases;
-  List<String> get boughtProductIds => _purchases.map((p) => p.productID).toList();
+  Set<String> get boughtProductIds => _purchases.map((p) => p.productID).toSet();
   bool get isAvailable => _isAvailable;
   bool get purchasePending => _purchasePending;
   bool get loading => _loading;
@@ -407,7 +410,7 @@ class PaymentService {
   void _deliverProduct(PurchaseDetails purchaseDetails) {
     disableInterstitialAd();
     _purchases.add(purchaseDetails);
-    _boughtProductIdsStreamController.add(boughtProductIds);
+    _boughtProductIdsStreamController.add(boughtProductIds.toList());
     _paymentStatusStreamController.add(PaymentStatus.completed);
     _isBuying = false;
     _completeInitialRestoring(source: "_deliverProduct");
@@ -427,7 +430,7 @@ class PaymentService {
         status: PurchaseStatus.restored,
       ),
     );
-    _boughtProductIdsStreamController.add(boughtProductIds);
+    _boughtProductIdsStreamController.add(boughtProductIds.toList());
     _paymentStatusStreamController.add(PaymentStatus.completed);
     _isBuying = false;
     _completeInitialRestoring(source: "_deliverCachedProduct");
@@ -469,7 +472,7 @@ class PaymentService {
       _allProducts = response.productDetails;
       _notFoundIds = response.notFoundIDs;
       if (Platform.isIOS) {
-        await _loadIosTrailProducts(response.productDetails);
+        await _loadIosTrialProducts(response.productDetails);
       }
       return;
     }
@@ -477,7 +480,7 @@ class PaymentService {
     _allProducts = response.productDetails;
     _notFoundIds = response.notFoundIDs;
     if (Platform.isIOS) {
-      await _loadIosTrailProducts(response.productDetails);
+      await _loadIosTrialProducts(response.productDetails);
     }
     _infoLog("productDetails: ${_allProducts.length}");
     _infoLog("notFoundIDs: ${_notFoundIds.length}");
@@ -486,13 +489,21 @@ class PaymentService {
     }
   }
 
-  Future<void> _loadIosTrailProducts(List<ProductDetails> productDetails) async {
-    for (ProductDetails p in productDetails) {
-      final bool eligible = await IosIntroTrial.isEligibleIos(p.id);
-      if (eligible) {
-        _iosTrialProducts.add(p);
-      }
-    }
+  Future<void> _loadIosTrialProducts(List<ProductDetails> productDetails) async {
+    if (!Platform.isIOS) return;
+    await Future.wait(
+      productDetails.map((p) async {
+        try {
+          if (p is AppStoreProduct2Details) {
+            if (p.sk2Product.type != SK2ProductType.autoRenewable) return;
+            final eligible = await SK2Product.isIntroductoryOfferEligible(p.id);
+            if (eligible) _iosTrialProducts.add(p);
+          }
+        } on PlatformException catch (e) {
+          _errorLog('_loadIosTrialProducts $e');
+        }
+      }),
+    );
   }
 
   void _completeInitialRestoring({bool timeout = false, required String source}) {
