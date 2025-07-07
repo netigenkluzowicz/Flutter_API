@@ -141,7 +141,7 @@ class _InterstitialAdSingleton {
                 return;
               }
               _disposeAdSync(_interstitialAd);
-              if (_loadAttempts < _maxFailedLoadAttempts) {
+              if (_loadAttempts < _maxFailedLoadAttempts - 1) {
                 await Future.delayed(Duration(milliseconds: 200));
                 _isLoading = false;
                 createInterstitialAd();

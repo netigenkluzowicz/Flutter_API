@@ -69,7 +69,7 @@ class _RewardedAdSingleton {
               _loadAttempts += 1;
               _errorLog('onAdFailedToLoad(attempt:$_loadAttempts) $error');
               _disposeAd(_rewardedAd);
-              if (_loadAttempts < _maxFailedLoadAttempts) {
+              if (_loadAttempts < _maxFailedLoadAttempts - 1) {
                 await Future.delayed(Duration(milliseconds: 200));
                 _isLoading = false;
                 _createRewardedAd();
