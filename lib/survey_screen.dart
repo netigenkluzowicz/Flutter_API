@@ -19,6 +19,7 @@ class SurveyScreen extends StatefulWidget {
 
   /// [PopScope.canPop]
   final bool canPop;
+  final Color? backgroundColor;
 
   /// [PopScope.onPopInvokedWithResult] with BuildContext
   final void Function(BuildContext context, bool didPop)? onPopInvoked;
@@ -33,6 +34,7 @@ class SurveyScreen extends StatefulWidget {
     this.canPop = true,
     this.onPopInvoked,
     this.initStateAction,
+    this.backgroundColor,
   });
 
   @override
@@ -97,14 +99,10 @@ class _SurveyScreenState extends State<SurveyScreen> {
             );
           },
           onHttpAuthRequest: (request) {
-            printR(
-              "[DEV-LOG] onHttpAuthRequest host:${request.host}",
-            );
+            printR("[DEV-LOG] onHttpAuthRequest host:${request.host}");
           },
           onHttpError: (error) {
-            printR(
-              "[DEV-LOG] onHttpError statusCode:${error.response?.statusCode} ${error.response?.uri}",
-            );
+            printR("[DEV-LOG] onHttpError statusCode:${error.response?.statusCode} ${error.response?.uri}");
           },
         ),
       )
@@ -145,12 +143,10 @@ class _SurveyScreenState extends State<SurveyScreen> {
         }
       },
       child: Scaffold(
+        backgroundColor: widget.backgroundColor ?? Theme.of(context).colorScheme.surface,
         body: SafeArea(
-          bottom: false,
           child: (_controller != null)
-              ? WebViewWidget(
-                  controller: _controller!,
-                )
+              ? WebViewWidget(controller: _controller!)
               : Center(
                   child: kIsWeb || Platform.isAndroid
                       ? const CircularProgressIndicator()

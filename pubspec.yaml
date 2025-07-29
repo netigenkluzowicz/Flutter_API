@@ -1,11 +1,11 @@
 name: flutter_api
 description: Flutter API for app development.
-version: 3.32.4+6
+version: 3.32.8+0
 homepage:
 
 environment:
   sdk: '>=3.8.1 <4.0.0'
-  flutter: '>=3.32.4'
+  flutter: '>=3.32.8'
 
 dependencies:
   app_settings: ^6.1.1
