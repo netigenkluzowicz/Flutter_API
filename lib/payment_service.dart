@@ -215,7 +215,7 @@ class PaymentService {
     }
 
     for (PurchaseDetails p in purchaseDetailsList) {
-      if (_iosSubscriptionProductIds.contains(p.productID)) continue;
+      if (Platform.isIOS && _iosSubscriptionProductIds.contains(p.productID)) continue;
       _infoLog("transactionDate: ${p.transactionDate} ${p.status} ${p.productID}");
       switch (p.status) {
         case PurchaseStatus.pending:
