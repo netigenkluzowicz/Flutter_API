@@ -11,18 +11,14 @@ import 'payment_service.dart';
 import 'rewarded_ad.dart';
 import 'utils.dart';
 
-/// - [mainInitilize] - jobs during native splash (should be overridden),
+/// - [mainInitialize] - jobs during native splash (should be overridden),
 ///   - [initAdsParameters]
 ///   - [initPurchases]
-/// - [afterSplashInitilize] - jobs after native splash (should be overridden),
+/// - [afterSplashInitialize] - jobs after native splash (should be overridden),
 ///   - [showConsent]
 ///   - [initDoneStream]
 ///   - [initDone]
 mixin class InitialServiceMixin {
-  // singleton
-  static final InitialServiceMixin instance = InitialServiceMixin._();
-  InitialServiceMixin._();
-
   int _consentTime = 0;
   int _createAdTime = 0;
   int _showAdTime = 0;
@@ -38,13 +34,22 @@ mixin class InitialServiceMixin {
   int get purchaseRestoreTime => _purchaseRestoreTime;
   int get purchaseCheckPremiumTime => _purchaseCheckPremiumTime;
 
-  final StreamController<bool> _initDone = StreamController<bool>.broadcast()..add(false);
+  final StreamController<bool> _initDone = StreamController<bool>.broadcast();
+  bool _isInitDone = false;
 
-  /// helpful in detecting when to display app content after [afterSplashInitilize]
+  /// helpful in detecting when to display app content after [afterSplashInitialize]
   Stream<bool> get initDoneStream => _initDone.stream;
+  bool get isInitDone => _isInitDone;
+
   void initDone() {
+    if (_isInitDone) return;
+    _isInitDone = true;
     _initDone.add(true);
-    _initDone.close();
+  }
+
+  @protected
+  void safeComplete(Completer c) {
+    if (!c.isCompleted) c.complete();
   }
 
   Future<TrackingStatus> _waitForConsent({required List<String>? testDeviceIds}) async {
@@ -54,15 +59,15 @@ mixin class InitialServiceMixin {
       trackingStatus = await AdConsent().consentInfo(
         params: AdConsent.params(testIdentifiers: testDeviceIds),
         action: () {
-          completer.complete();
+          safeComplete(completer);
         },
         onError: () {
-          completer.complete();
+          safeComplete(completer);
         },
       );
     } catch (e) {
       _errorLog("waitForConsent error: $e");
-      completer.complete();
+      safeComplete(completer);
     }
     await completer.future;
     return trackingStatus;
@@ -71,14 +76,10 @@ mixin class InitialServiceMixin {
   Future<void> _waitForAdStart() async {
     final Completer<void> completer = Completer<void>();
     try {
-      await showInterstitialAd(
-        onStartCallback: () async {
-          completer.complete();
-        },
-      );
+      await showInterstitialAd(onStartCallback: () => safeComplete(completer));
     } catch (e) {
       _errorLog("waitForAdStart error: $e");
-      completer.complete();
+      safeComplete(completer);
     }
     return completer.future;
   }
@@ -97,21 +98,50 @@ mixin class InitialServiceMixin {
   }) async {
     if (!skipConsentAndAd) {
       try {
-        final int start = DateTime.now().millisecondsSinceEpoch;
+        final sw = Stopwatch()..start();
         final TrackingStatus trackingStatus = await _waitForConsent(testDeviceIds: testDeviceIds);
-        final bool skipAdCauseTracking = trackingStatus == TrackingStatus.notDetermined;
-        final int afterConsent = DateTime.now().millisecondsSinceEpoch;
+
+        final ConsentStatus consentStatus = await ConsentInformation.instance.getConsentStatus();
+        final PrivacyOptionsRequirementStatus por = await ConsentInformation.instance
+            .getPrivacyOptionsRequirementStatus();
+        final bool inEEA =
+            por == PrivacyOptionsRequirementStatus.required || por == PrivacyOptionsRequirementStatus.unknown;
+
+        final attOk =
+            !Platform.isIOS ||
+            trackingStatus == TrackingStatus.authorized ||
+            trackingStatus == TrackingStatus.notSupported;
+        bool allowPersonalized = false;
+        if (attOk) {
+          if (!inEEA && consentStatus == ConsentStatus.notRequired) {
+            allowPersonalized = true; // poza EOG
+          }
+        }
+        setPersonalizedInterstitialAds(allowPersonalized);
+        setPersonalizedRewardedAds(allowPersonalized);
+
+        final int afterConsent = sw.elapsedMilliseconds;
+
+        final canRequest = await ConsentInformation.instance.canRequestAds();
+
+        if (!canRequest && inEEA) {
+          _consentTime = afterConsent;
+          return;
+        }
+
         if (showAdAfterConsent) {
           await createInterstitialAd();
         } else {
           createInterstitialAd();
         }
-        final int afterCreate = DateTime.now().millisecondsSinceEpoch;
-        if (showAdAfterConsent && !skipAdCauseTracking) {
+        final int afterCreate = sw.elapsedMilliseconds;
+
+        if (showAdAfterConsent && canRequest) {
           await _waitForAdStart();
         }
-        final int afterShow = DateTime.now().millisecondsSinceEpoch;
-        _consentTime = afterConsent - start;
+
+        final afterShow = sw.elapsedMilliseconds;
+        _consentTime = afterConsent;
         _createAdTime = afterCreate - afterConsent;
         _showAdTime = afterShow - afterCreate;
       } catch (e) {
@@ -127,10 +157,10 @@ mixin class InitialServiceMixin {
     int loadingTicksInterstitialAd = 15,
     int loadingTicksRewardedAd = 25,
     int minIntervalBetweenInterstitialAdsInSecs = 60,
-    required List<String>? testDeviceIds,
+    required List<String> testDeviceIds,
     int? maxFailedLoadAttempts,
   }) async {
-    final int start = DateTime.now().millisecondsSinceEpoch;
+    final sw = Stopwatch()..start();
     try {
       await MobileAds.instance.initialize();
       await MobileAds.instance.updateRequestConfiguration(RequestConfiguration(testDeviceIds: testDeviceIds));
@@ -148,7 +178,7 @@ mixin class InitialServiceMixin {
     } catch (e) {
       _errorLog("._initAds error: $e");
     }
-    _adsInitTime = DateTime.now().millisecondsSinceEpoch - start;
+    _adsInitTime = sw.elapsedMilliseconds;
   }
 
   /// - [activeProductIds] - all products that could be bought in app at this moment
@@ -171,10 +201,11 @@ mixin class InitialServiceMixin {
     PaymentVerifyCallback? verifyPurchaseCallback,
     int restoringOnStartTicks = 5,
   }) async {
-    int time1 = DateTime.now().millisecondsSinceEpoch;
+    final sw = Stopwatch()..start();
+    int time1 = sw.elapsedMilliseconds;
     int time2 = time1, time3 = time1, time4 = time1;
     if (defaultTargetPlatform == TargetPlatform.iOS || defaultTargetPlatform == TargetPlatform.android) {
-      time1 = DateTime.now().millisecondsSinceEpoch;
+      time1 = sw.elapsedMilliseconds;
       try {
         await PaymentService.instance.initParameters(
           activeProductIds: activeProductIds,
@@ -187,11 +218,11 @@ mixin class InitialServiceMixin {
           restoringOnStartTicks: restoringOnStartTicks,
         );
         await PaymentService.instance.loadProducts();
-        time2 = DateTime.now().millisecondsSinceEpoch;
+        time2 = sw.elapsedMilliseconds;
         await PaymentService.instance.restorePurchases();
-        time3 = DateTime.now().millisecondsSinceEpoch;
+        time3 = sw.elapsedMilliseconds;
         await PaymentService.instance.waitForPurchaseRestoring();
-        time4 = DateTime.now().millisecondsSinceEpoch;
+        time4 = sw.elapsedMilliseconds;
       } catch (e) {
         _errorLog("_initPurchases error: $e");
       }
@@ -205,12 +236,12 @@ mixin class InitialServiceMixin {
   ///
   /// Should be overwritten to make initializations like:
   /// - [initPurchases]
-  /// - [initAdsParameters] (consent and optional ad must be shown after splash [afterSplashInitilize] by [showConsent])
+  /// - [initAdsParameters] (consent and optional ad must be shown after splash [afterSplashInitialize] by [showConsent])
   /// - database,
   /// - screen orientation,
   /// - firebase features,
   /// -
-  Future<void> mainInitilize() async {
+  Future<void> mainInitialize() async {
     const String androidInterstitalTestId = 'ca-app-pub-3940256099942544/1033173712';
     const String iOSInterstitalTestId = 'ca-app-pub-3940256099942544/4411468910';
     const String androidRewardedTestId = 'ca-app-pub-3940256099942544/5224354917';
@@ -235,7 +266,7 @@ mixin class InitialServiceMixin {
   }
 
   /// Execute it after splash dropping. Should be overwritten and contain [showConsent].
-  Future<void> afterSplashInitilize() async {
+  Future<void> afterSplashInitialize() async {
     await showConsent(skipConsentAndAd: false, showAdAfterConsent: false, testDeviceIds: []);
     initDone();
   }

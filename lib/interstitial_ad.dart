@@ -1,3 +1,4 @@
+import 'dart:async' show Completer, TimeoutException;
 import 'dart:math';
 
 import 'package:flutter/foundation.dart' show kDebugMode, VoidCallback;
@@ -71,24 +72,40 @@ void enableInterstitialAd() => _InterstitialAdSingleton.instance.enable();
 /// until [enableInterstitialAd]
 void disableInterstitialAd() => _InterstitialAdSingleton.instance.disable();
 
+void setPersonalizedInterstitialAds(bool value) => _InterstitialAdSingleton.instance._setPersonalizedAds(value);
+
 class _InterstitialAdSingleton {
   // make this a singleton class
   _InterstitialAdSingleton._();
   static final _InterstitialAdSingleton instance = _InterstitialAdSingleton._();
 
-  static const AdRequest request = AdRequest();
+  AdRequest _request = const AdRequest();
+  bool _npa = false;
+
+  void _setPersonalizedAds(bool value) {
+    _npa = !value;
+    _request = AdRequest(nonPersonalizedAds: _npa);
+  }
 
   InterstitialAd? _interstitialAd;
-  int _loadAttempts = 0;
-  DateTime? _lastAdDismissTime;
   String? _adUnitId;
   int? _minIntervalBetweenAdsInSecs;
-  bool _isReady = false;
+
   bool _disabled = false;
+  bool _isLoading = false;
+  bool _isReady = false;
+
   int _loadingTicks = 25;
   int _maxFailedLoadAttempts = 2;
+  int _loadAttempts = 0;
 
-  void disable() => _disabled = true;
+  DateTime? _lastAdDismissTime;
+
+  void disable() {
+    _disabled = true;
+    _disposeAdSync(_interstitialAd);
+  }
+
   void enable() => _disabled = false;
 
   Future<void> init({
@@ -100,65 +117,75 @@ class _InterstitialAdSingleton {
   }) async {
     _adUnitId = adUnitId;
     _minIntervalBetweenAdsInSecs = minIntervalBetweenAdsInSecs;
-    _maxFailedLoadAttempts = maxFailedLoadAttempts ?? _maxFailedLoadAttempts;
     if (loadingTicks != null) _loadingTicks = loadingTicks;
-    if (createAd == true) {
+    if (maxFailedLoadAttempts != null) _maxFailedLoadAttempts = maxFailedLoadAttempts;
+    if (createAd) {
       await createInterstitialAd();
     }
   }
 
-  bool _isLoading = false;
   Future<void> createInterstitialAd() async {
     if (_disabled) {
       await _disposeAdAsync();
       return;
     }
     if (_adUnitId == null) {
-      throw ArgumentError(
-        "Missing _adUnitId in InterstitialAdSingleton. Execute InterstitialAdSingleton.instance.init()",
+      throw ArgumentError("Missing _adUnitId in _InterstitialAdSingleton. Execute initInterstitialAd()");
+    }
+    if (_isLoading) return;
+    if (_interstitialAd != null && _isReady) return;
+
+    _isLoading = true;
+    _isReady = false;
+    _loadAttempts = 0;
+
+    final maxTotal = Duration(milliseconds: _loadingTicks * 200);
+    final sw = Stopwatch()..start();
+
+    while (!_disabled && !_isReady && _loadAttempts < _maxFailedLoadAttempts && sw.elapsed < maxTotal) {
+      final completer = Completer<void>();
+
+      InterstitialAd.load(
+        adUnitId: _adUnitId!,
+        request: _request,
+        adLoadCallback: InterstitialAdLoadCallback(
+          onAdLoaded: (InterstitialAd ad) {
+            _infoLog('onAdLoaded');
+            _interstitialAd = ad;
+            _isReady = true;
+            if (!completer.isCompleted) completer.complete();
+          },
+          onAdFailedToLoad: (LoadAdError error) {
+            _loadAttempts += 1;
+            _errorLog('onAdFailedToLoad (attempt: $_loadAttempts): $error');
+            _disposeAdSync(_interstitialAd);
+            if (!completer.isCompleted) completer.complete();
+          },
+        ),
       );
-    }
-    if (!_isLoading) {
-      _isLoading = true;
+
+      final remaining = maxTotal - sw.elapsed;
+      if (remaining <= Duration.zero) break;
       try {
-        await InterstitialAd.load(
-          adUnitId: _adUnitId!,
-          request: request,
-          adLoadCallback: InterstitialAdLoadCallback(
-            onAdLoaded: (InterstitialAd ad) {
-              _infoLog('onAdLoaded');
-              _interstitialAd = ad;
-              _loadAttempts = 0;
-              _isReady = true;
-              _isLoading = false;
-            },
-            onAdFailedToLoad: (LoadAdError error) async {
-              _loadAttempts += 1;
-              _errorLog('onAdFailedToLoad(failed attempt:$_loadAttempts) $error');
-              if (_disabled) {
-                await _disposeAdAsync();
-                _isLoading = false;
-                return;
-              }
-              _disposeAdSync(_interstitialAd);
-              if (_loadAttempts < _maxFailedLoadAttempts - 1) {
-                await Future.delayed(Duration(milliseconds: 200));
-                _isLoading = false;
-                createInterstitialAd();
-              } else {
-                _isLoading = false;
-              }
-            },
-          ),
-        );
-      } catch (e) {
-        _errorLog(e);
-      } finally {
-        _isLoading = false;
+        await completer.future.timeout(remaining);
+      } on TimeoutException {
+        break;
       }
-      await _waitForLoad();
+
+      if (!_isReady && !_disabled && _loadAttempts < _maxFailedLoadAttempts) {
+        await Future.delayed(const Duration(milliseconds: 50));
+      }
     }
-    if (_disabled) await _disposeAdAsync();
+
+    _isLoading = false;
+
+    if (_disabled) {
+      await _disposeAdAsync();
+    } else if (_isReady) {
+      _infoLog('Ad ready after attempts: $_loadAttempts');
+    } else {
+      _infoLog('Ad not ready after max attempts: $_maxFailedLoadAttempts');
+    }
   }
 
   Future<void> showInterstitialAd({
@@ -167,42 +194,52 @@ class _InterstitialAdSingleton {
     VoidCallback? onStartCallback,
     VoidCallback? onEndCallback,
   }) async {
+    final c = Completer<void>();
+    void start() {
+      onStartCallback?.call();
+    }
+
+    void end() {
+      onEndCallback?.call();
+      if (!c.isCompleted) c.complete();
+    }
+
     if (skip == true || _disabled) {
-      _executeCallback(onStartCallback);
-      _executeCallback(onEndCallback);
+      start();
+      end();
       if (_disabled) await _disposeAdAsync();
-      return;
+      return c.future;
     }
 
     if (_minIntervalBetweenAdsInSecs != null && _lastAdDismissTime != null) {
       final int secsAfterLastAd = DateTime.now().difference(_lastAdDismissTime!).inSeconds;
       final int effectiveMinInterval = max(_minIntervalBetweenAdsInSecs!, 2);
       if (secsAfterLastAd < effectiveMinInterval) {
-        _executeCallback(onStartCallback);
-        _executeCallback(onEndCallback);
+        start();
+        end();
         if (_interstitialAd == null) createInterstitialAd();
-        return;
+        return c.future;
       }
     }
 
     if (_interstitialAd == null) {
       _errorLog('attempt to show ad before loaded.');
-      _executeCallback(onStartCallback);
-      _executeCallback(onEndCallback);
+      start();
+      end();
       createInterstitialAd();
-      return;
+      return c.future;
     }
 
     _interstitialAd?.fullScreenContentCallback = FullScreenContentCallback<InterstitialAd>(
       onAdShowedFullScreenContent: (InterstitialAd ad) {
         _infoLog('onAdShowedFullScreenContent');
-        _executeCallback(onAdShowedFullScreenContent);
-        _executeCallback(onStartCallback);
+        onAdShowedFullScreenContent?.call();
+        start();
       },
       onAdDismissedFullScreenContent: (InterstitialAd ad) {
         _infoLog('onAdDismissedFullScreenContent');
         _lastAdDismissTime = DateTime.now();
-        _executeCallback(onEndCallback);
+        end();
         _disposeAdSync(ad);
         createInterstitialAd();
       },
@@ -210,50 +247,18 @@ class _InterstitialAdSingleton {
         _errorLog('onAdFailedToShowFullScreenContent: $error');
         _disposeAdSync(ad);
         // intentionally
-        _executeCallback(onStartCallback);
-        _executeCallback(onEndCallback);
+        start();
+        end();
         createInterstitialAd();
       },
     );
 
     if (_interstitialAd != null) {
       await _interstitialAd!.setImmersiveMode(true);
+      _isReady = false;
       await _interstitialAd!.show();
     }
-  }
-
-  void _executeCallback(VoidCallback? cb) {
-    if (cb != null) {
-      cb();
-    }
-  }
-
-  bool _waitingForLoad = false;
-
-  /// Waits for ad loading for up to 5s. Then stops loading.
-  Future<void> _waitForLoad() async {
-    if (!_waitingForLoad) {
-      _waitingForLoad = true;
-      const tickInterval = Duration(milliseconds: 200);
-      var tick = 0;
-
-      while (!_isReady && !_disabled && tick < _loadingTicks) {
-        await Future.delayed(tickInterval);
-        tick++;
-      }
-
-      final waitedSeconds = (tick * 0.2).toStringAsFixed(1);
-
-      if (_isReady) {
-        _infoLog('loaded after ${waitedSeconds}s (failed attempts:$_loadAttempts)');
-      } else {
-        _infoLog(
-          'loading timed out after '
-          '${(_loadingTicks * 0.2).toStringAsFixed(1)}s (failed attempts:$_loadAttempts)',
-        );
-      }
-      _waitingForLoad = false;
-    }
+    return c.future;
   }
 
   Future<void> _disposeAdAsync() async {

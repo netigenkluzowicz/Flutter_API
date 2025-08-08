@@ -26,12 +26,20 @@ Future<void> showRewardedAd({
   onAdFailedToShowFullScreenContent: onFailed,
 );
 
+void setPersonalizedRewardedAds(bool value) => _RewardedAdSingleton.instance._setPersonalizedAds(value);
+
 class _RewardedAdSingleton {
   // make this a singleton class
   _RewardedAdSingleton._();
   static final _RewardedAdSingleton instance = _RewardedAdSingleton._();
 
-  static const AdRequest request = AdRequest();
+  AdRequest _request = const AdRequest();
+  bool _npa = false;
+
+  void _setPersonalizedAds(bool value) {
+    _npa = !value;
+    _request = AdRequest(nonPersonalizedAds: _npa);
+  }
 
   RewardedAd? _rewardedAd;
   int _loadAttempts = 0;
@@ -56,7 +64,7 @@ class _RewardedAdSingleton {
       try {
         await RewardedAd.load(
           adUnitId: _adUnitId!,
-          request: request,
+          request: _request,
           rewardedAdLoadCallback: RewardedAdLoadCallback(
             onAdLoaded: (RewardedAd ad) {
               _infoLog('onAdLoaded');

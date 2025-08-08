@@ -33,21 +33,26 @@ class AdConsent {
     ConsentCallback? action,
     ConsentRequestParameters? params,
   }) async {
-    if (!Platform.isIOS) {
-      await _consentInfo(onError: onError, action: action, params: params);
-      return TrackingStatus.notSupported;
+    final completer = Completer<void>();
+    FutureOr<void> done([FutureOr<void> Function()? cb]) async {
+      if (cb != null) await cb();
+      if (!completer.isCompleted) completer.complete();
     }
-    TrackingStatus status = await AppTrackingTransparency.trackingAuthorizationStatus;
-    _infoLog("trackingAuthorizationStatus:$status");
-    if (status == TrackingStatus.notDetermined) {
-      status = await AppTrackingTransparency.requestTrackingAuthorization();
-      _infoLog("requestTrackingAuthorization:$status");
+
+    TrackingStatus status = TrackingStatus.notSupported;
+
+    if (Platform.isIOS) {
+      status = await AppTrackingTransparency.trackingAuthorizationStatus;
+      _infoLog("trackingAuthorizationStatus:$status");
+      if (status == TrackingStatus.notDetermined) {
+        status = await AppTrackingTransparency.requestTrackingAuthorization();
+        _infoLog("requestTrackingAuthorization:$status");
+      }
     }
-    if (status == TrackingStatus.authorized || status == TrackingStatus.notSupported) {
-      await _consentInfo(onError: onError, action: action, params: params);
-    } else if (onError != null) {
-      onError();
-    }
+
+    await _consentInfo(params: params, action: () => done(action), onError: () => done(onError));
+
+    await completer.future;
     return status;
   }
 
@@ -81,22 +86,19 @@ class AdConsent {
   void _loadForm({ConsentCallback? action, ConsentCallback? onError}) {
     ConsentForm.loadConsentForm(
       (ConsentForm consentForm) async {
-        var status = await ConsentInformation.instance.getConsentStatus();
-        if (status == ConsentStatus.required) {
+        final before = await ConsentInformation.instance.getConsentStatus();
+        if (before == ConsentStatus.required) {
           consentForm.show((formError) async {
-            if (action != null) {
-              await action();
-            }
+            if (formError != null) _errorLog("show error: ${formError.message}");
+            await action?.call();
           });
-        } else if (action != null) {
-          await action();
+        } else {
+          await action?.call();
         }
       },
-      (FormError formError) {
+      (FormError formError) async {
         _errorLog("_loadForm errorCode:${formError.errorCode} message:${formError.message}");
-        if (onError != null) {
-          onError();
-        }
+        await onError?.call();
       },
     );
   }
@@ -105,12 +107,16 @@ class AdConsent {
   /// could be used to pop screen that was pushed during waiting on consentForm
   /// (consentForm isn't showed immediately after calling [resetConsent]);
   void resetConsent({ConsentRequestParameters? params, ConsentCallback? action, ConsentCallback? onError}) {
+    if (!Platform.isIOS) {
+      _resetConsent(params: params, action: action, onError: onError);
+      return;
+    }
     AppTrackingTransparency.requestTrackingAuthorization().then((TrackingStatus status) {
       _infoLog("trackingStatus:$status");
       if (status == TrackingStatus.authorized || status == TrackingStatus.notSupported) {
         _resetConsent(params: params, action: action, onError: onError);
-      } else if (status == TrackingStatus.denied) {
-        if (action != null) action();
+      } else if (status == TrackingStatus.denied || status == TrackingStatus.restricted) {
+        action?.call();
         AppSettings.openAppSettings();
       }
     });
@@ -140,16 +146,15 @@ class AdConsent {
   void _loadFormAgain({ConsentCallback? action, ConsentCallback? onError}) {
     ConsentForm.loadConsentForm(
       (ConsentForm consentForm) async {
-        final ConsentStatus status = await ConsentInformation.instance.getConsentStatus();
-        _infoLog("$status");
-        if ([ConsentStatus.notRequired, ConsentStatus.required, ConsentStatus.obtained].contains(status)) {
-          consentForm.show((formError) {
-            if (action != null) {
-              action();
-            }
+        final ConsentStatus before = await ConsentInformation.instance.getConsentStatus();
+        _infoLog("before: $before");
+        if ([ConsentStatus.notRequired, ConsentStatus.required, ConsentStatus.obtained].contains(before)) {
+          consentForm.show((formError) async {
+            if (formError != null) _errorLog("show error: ${formError.message}");
+            await action?.call();
           });
-        } else if (action != null) {
-          action();
+        } else {
+          await action?.call();
         }
       },
       (FormError formError) {
