@@ -26,7 +26,8 @@ Future<void> initInterstitialAd({
 );
 
 /// Loads an [InterstitialAd]. Stopped after 5s.
-Future<void> createInterstitialAd() async => await _InterstitialAdSingleton.instance.createInterstitialAd();
+Future<void> createInterstitialAd() async =>
+    await _InterstitialAdSingleton.instance.createInterstitialAd();
 
 /// **[skip]**
 ///
@@ -72,7 +73,12 @@ void enableInterstitialAd() => _InterstitialAdSingleton.instance.enable();
 /// until [enableInterstitialAd]
 void disableInterstitialAd() => _InterstitialAdSingleton.instance.disable();
 
-void setPersonalizedInterstitialAds(bool value) => _InterstitialAdSingleton.instance._setPersonalizedAds(value);
+void setPersonalizedInterstitialAds(bool value) =>
+    _InterstitialAdSingleton.instance._setPersonalizedAds(value);
+
+/// Enables ad loading only after UMP reports that ads may be requested.
+void setInterstitialAdsAllowed(bool value) =>
+    _InterstitialAdSingleton.instance.setAdsRequestAllowed(value);
 
 class _InterstitialAdSingleton {
   // make this a singleton class
@@ -92,6 +98,7 @@ class _InterstitialAdSingleton {
   int? _minIntervalBetweenAdsInSecs;
 
   bool _disabled = false;
+  bool _adsRequestAllowed = false;
   bool _isLoading = false;
   bool _isReady = false;
 
@@ -108,6 +115,11 @@ class _InterstitialAdSingleton {
 
   void enable() => _disabled = false;
 
+  void setAdsRequestAllowed(bool value) {
+    _adsRequestAllowed = value;
+    if (!value) _disposeAdSync(_interstitialAd);
+  }
+
   Future<void> init({
     required String adUnitId,
     int? minIntervalBetweenAdsInSecs,
@@ -117,20 +129,26 @@ class _InterstitialAdSingleton {
   }) async {
     _adUnitId = adUnitId;
     _minIntervalBetweenAdsInSecs = minIntervalBetweenAdsInSecs;
-    if (loadingTicks != null) _loadingTicks = loadingTicks;
-    if (maxFailedLoadAttempts != null) _maxFailedLoadAttempts = maxFailedLoadAttempts;
+    if (loadingTicks != null) {
+      _loadingTicks = loadingTicks;
+    }
+    if (maxFailedLoadAttempts != null) {
+      _maxFailedLoadAttempts = maxFailedLoadAttempts;
+    }
     if (createAd) {
       await createInterstitialAd();
     }
   }
 
   Future<void> createInterstitialAd() async {
-    if (_disabled) {
+    if (_disabled || !_adsRequestAllowed) {
       await _disposeAdAsync();
       return;
     }
     if (_adUnitId == null) {
-      throw ArgumentError("Missing _adUnitId in _InterstitialAdSingleton. Execute initInterstitialAd()");
+      throw ArgumentError(
+        "Missing _adUnitId in _InterstitialAdSingleton. Execute initInterstitialAd()",
+      );
     }
     if (_isLoading) return;
     if (_interstitialAd != null && _isReady) return;
@@ -142,7 +160,10 @@ class _InterstitialAdSingleton {
     final maxTotal = Duration(milliseconds: _loadingTicks * 200);
     final sw = Stopwatch()..start();
 
-    while (!_disabled && !_isReady && _loadAttempts < _maxFailedLoadAttempts && sw.elapsed < maxTotal) {
+    while (!_disabled &&
+        !_isReady &&
+        _loadAttempts < _maxFailedLoadAttempts &&
+        sw.elapsed < maxTotal) {
       final completer = Completer<void>();
 
       InterstitialAd.load(
@@ -204,7 +225,7 @@ class _InterstitialAdSingleton {
       if (!c.isCompleted) c.complete();
     }
 
-    if (skip == true || _disabled) {
+    if (skip == true || _disabled || !_adsRequestAllowed) {
       start();
       end();
       if (_disabled) await _disposeAdAsync();
@@ -212,7 +233,9 @@ class _InterstitialAdSingleton {
     }
 
     if (_minIntervalBetweenAdsInSecs != null && _lastAdDismissTime != null) {
-      final int secsAfterLastAd = DateTime.now().difference(_lastAdDismissTime!).inSeconds;
+      final int secsAfterLastAd = DateTime.now()
+          .difference(_lastAdDismissTime!)
+          .inSeconds;
       final int effectiveMinInterval = max(_minIntervalBetweenAdsInSecs!, 2);
       if (secsAfterLastAd < effectiveMinInterval) {
         start();
@@ -230,7 +253,8 @@ class _InterstitialAdSingleton {
       return c.future;
     }
 
-    _interstitialAd?.fullScreenContentCallback = FullScreenContentCallback<InterstitialAd>(
+    _interstitialAd
+        ?.fullScreenContentCallback = FullScreenContentCallback<InterstitialAd>(
       onAdShowedFullScreenContent: (InterstitialAd ad) {
         _infoLog('onAdShowedFullScreenContent');
         onAdShowedFullScreenContent?.call();

@@ -73,7 +73,8 @@ class _SurveyScreenState extends State<SurveyScreen> {
       params = const PlatformWebViewControllerCreationParams();
     }
 
-    final WebViewController controller = WebViewController.fromPlatformCreationParams(params);
+    final WebViewController controller =
+        WebViewController.fromPlatformCreationParams(params);
 
     final PackageInfo packageInfo = await PackageInfo.fromPlatform();
     controller
@@ -102,7 +103,9 @@ class _SurveyScreenState extends State<SurveyScreen> {
             printR("[DEV-LOG] onHttpAuthRequest host:${request.host}");
           },
           onHttpError: (error) {
-            printR("[DEV-LOG] onHttpError statusCode:${error.response?.statusCode} ${error.response?.uri}");
+            printR(
+              "[DEV-LOG] onHttpError statusCode:${error.response?.statusCode} ${error.response?.uri}",
+            );
           },
         ),
       )
@@ -112,7 +115,8 @@ class _SurveyScreenState extends State<SurveyScreen> {
           if (widget.onMessageReceived != null) {
             widget.onMessageReceived!(message.message);
           }
-          if (message.message.contains('QUIT_YES') || message.message.contains('EXIT')) {
+          if (message.message.contains('QUIT_YES') ||
+              message.message.contains('EXIT')) {
             Navigator.of(context).pop();
           }
         },
@@ -125,7 +129,8 @@ class _SurveyScreenState extends State<SurveyScreen> {
 
     if (controller.platform is AndroidWebViewController) {
       AndroidWebViewController.enableDebugging(true);
-      (controller.platform as AndroidWebViewController).setMediaPlaybackRequiresUserGesture(false);
+      (controller.platform as AndroidWebViewController)
+          .setMediaPlaybackRequiresUserGesture(false);
     }
 
     setState(() {
@@ -143,7 +148,8 @@ class _SurveyScreenState extends State<SurveyScreen> {
         }
       },
       child: Scaffold(
-        backgroundColor: widget.backgroundColor ?? Theme.of(context).colorScheme.surface,
+        backgroundColor:
+            widget.backgroundColor ?? Theme.of(context).colorScheme.surface,
         body: SafeArea(
           child: (_controller != null)
               ? WebViewWidget(controller: _controller!)

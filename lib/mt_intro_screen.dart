@@ -70,7 +70,8 @@ class _MtIntroScreenState extends State<MtIntroScreen> {
       params = const PlatformWebViewControllerCreationParams();
     }
 
-    final WebViewController controller = WebViewController.fromPlatformCreationParams(params);
+    final WebViewController controller =
+        WebViewController.fromPlatformCreationParams(params);
 
     controller
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
@@ -113,7 +114,8 @@ class _MtIntroScreenState extends State<MtIntroScreen> {
 
     if (controller.platform is AndroidWebViewController) {
       AndroidWebViewController.enableDebugging(true);
-      (controller.platform as AndroidWebViewController).setMediaPlaybackRequiresUserGesture(false);
+      (controller.platform as AndroidWebViewController)
+          .setMediaPlaybackRequiresUserGesture(false);
     }
 
     setState(() {
@@ -134,9 +136,7 @@ class _MtIntroScreenState extends State<MtIntroScreen> {
         body: SafeArea(
           bottom: false,
           child: (_controller != null)
-              ? WebViewWidget(
-                  controller: _controller!,
-                )
+              ? WebViewWidget(controller: _controller!)
               : Center(
                   child: kIsWeb || Platform.isAndroid
                       ? const CircularProgressIndicator()

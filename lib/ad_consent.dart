@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:app_settings/app_settings.dart';
 import 'package:app_tracking_transparency/app_tracking_transparency.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:google_mobile_ads/google_mobile_ads.dart';
@@ -10,10 +9,35 @@ import 'utils.dart';
 
 typedef ConsentCallback = FutureOr<void> Function();
 
-/// - [consentInfo]
-/// - [resetConsent]
+/// Immutable snapshot of the current UMP and ATT state.
+///
+/// [canRequestAds] is the only value callers should use to decide whether an
+/// ad may be loaded. UMP forwards the user's consent choices to Google Mobile
+/// Ads, so applications should not infer personalization from geography.
+class AdConsentResult {
+  const AdConsentResult({
+    required this.canRequestAds,
+    required this.consentStatus,
+    required this.privacyOptionsRequirementStatus,
+    required this.trackingStatus,
+    this.error,
+  });
+
+  final bool canRequestAds;
+  final ConsentStatus consentStatus;
+  final PrivacyOptionsRequirementStatus privacyOptionsRequirementStatus;
+  final TrackingStatus trackingStatus;
+  final FormError? error;
+
+  bool get privacyOptionsRequired =>
+      privacyOptionsRequirementStatus ==
+      PrivacyOptionsRequirementStatus.required;
+}
+
+/// Coordinates Google UMP consent and, optionally, iOS ATT authorization.
 class AdConsent {
-  static final _emptyParams = ConsentRequestParameters();
+  static final ConsentRequestParameters _emptyParams =
+      ConsentRequestParameters();
 
   static ConsentRequestParameters params({
     DebugGeography? debugGeography,
@@ -21,158 +45,184 @@ class AdConsent {
     List<String>? testIdentifiers,
   }) => ConsentRequestParameters(
     tagForUnderAgeOfConsent: tagForUnderAgeOfConsent,
-    consentDebugSettings: (kDebugMode && (debugGeography != null || testIdentifiers != null))
-        ? ConsentDebugSettings(debugGeography: debugGeography, testIdentifiers: testIdentifiers)
+    consentDebugSettings:
+        kDebugMode &&
+            (debugGeography != null || testIdentifiers?.isNotEmpty == true)
+        ? ConsentDebugSettings(
+            debugGeography: debugGeography,
+            testIdentifiers: testIdentifiers,
+          )
         : null,
   );
 
-  /// - [action] called when consentForm is closed or unavailable (pass completer.complete())
-  /// - [onError] called on Consent error or tracking status is supported and not authorized
+  /// Requests fresh consent information on every app launch and displays the
+  /// UMP form when required.
+  ///
+  /// ATT is requested only after the UMP flow and only when UMP allows ads.
+  Future<AdConsentResult> requestConsent({
+    ConsentRequestParameters? params,
+    bool requestTrackingAuthorization = true,
+  }) async {
+    FormError? error = await _requestConsentInfoUpdate(params ?? _emptyParams);
+
+    error ??= await _loadAndShowConsentFormIfRequired();
+
+    var canRequestAds = await ConsentInformation.instance.canRequestAds();
+    var trackingStatus = TrackingStatus.notSupported;
+
+    if (Platform.isIOS) {
+      trackingStatus =
+          await AppTrackingTransparency.trackingAuthorizationStatus;
+      if (requestTrackingAuthorization &&
+          canRequestAds &&
+          trackingStatus == TrackingStatus.notDetermined) {
+        trackingStatus =
+            await AppTrackingTransparency.requestTrackingAuthorization();
+      }
+      _infoLog('trackingAuthorizationStatus: $trackingStatus');
+    }
+
+    final result = await _snapshot(
+      trackingStatus: trackingStatus,
+      error: error,
+    );
+    canRequestAds = result.canRequestAds;
+    _infoLog(
+      'consentStatus: ${result.consentStatus}, '
+      'canRequestAds: $canRequestAds, '
+      'privacyOptions: ${result.privacyOptionsRequirementStatus}',
+    );
+    return result;
+  }
+
+  /// Displays Google's privacy options form from an always-accessible settings
+  /// entry point when UMP marks it as required.
+  Future<AdConsentResult> showPrivacyOptionsForm() async {
+    final completer = Completer<FormError?>();
+    ConsentForm.showPrivacyOptionsForm((formError) {
+      if (!completer.isCompleted) {
+        completer.complete(formError);
+      }
+    });
+
+    final error = await completer.future;
+    if (error != null) {
+      _errorLog(
+        'showPrivacyOptionsForm errorCode:${error.errorCode} '
+        'message:${error.message}',
+      );
+    }
+    return _snapshot(error: error);
+  }
+
+  Future<bool> get privacyOptionsRequired async =>
+      await ConsentInformation.instance.getPrivacyOptionsRequirementStatus() ==
+      PrivacyOptionsRequirementStatus.required;
+
+  Future<bool> get canRequestAds => ConsentInformation.instance.canRequestAds();
+
+  /// Test-only helper. Never expose this as a production privacy action.
+  Future<void> resetForTesting() async {
+    if (!kDebugMode) {
+      throw StateError('Consent reset is available only in debug builds.');
+    }
+    await ConsentInformation.instance.reset();
+  }
+
+  /// Compatibility wrapper for applications using the pre-3.44 API.
+  @Deprecated('Use requestConsent(), which returns the complete consent state.')
   Future<TrackingStatus> consentInfo({
     ConsentCallback? onError,
     ConsentCallback? action,
     ConsentRequestParameters? params,
   }) async {
-    final completer = Completer<void>();
-    FutureOr<void> done([FutureOr<void> Function()? cb]) async {
-      if (cb != null) await cb();
-      if (!completer.isCompleted) completer.complete();
+    final result = await requestConsent(params: params);
+    if (result.error != null) {
+      await onError?.call();
+    } else {
+      await action?.call();
     }
-
-    TrackingStatus status = TrackingStatus.notSupported;
-
-    if (Platform.isIOS) {
-      status = await AppTrackingTransparency.trackingAuthorizationStatus;
-      _infoLog("trackingAuthorizationStatus:$status");
-      if (status == TrackingStatus.notDetermined) {
-        status = await AppTrackingTransparency.requestTrackingAuthorization();
-        _infoLog("requestTrackingAuthorization:$status");
-      }
-    }
-
-    await _consentInfo(params: params, action: () => done(action), onError: () => done(onError));
-
-    await completer.future;
-    return status;
+    return result.trackingStatus;
   }
 
-  Future<void> _consentInfo({
-    ConsentCallback? onError,
-    ConsentCallback? action,
+  /// Compatibility wrapper. The production action is now the official UMP
+  /// privacy options form, not a consent reset.
+  @Deprecated('Use showPrivacyOptionsForm().')
+  void resetConsent({
     ConsentRequestParameters? params,
-  }) async {
-    ConsentInformation.instance.requestConsentInfoUpdate(
-      params ?? _emptyParams,
-      () async {
-        final bool available = await ConsentInformation.instance.isConsentFormAvailable();
-        _infoLog("ConsentFormAvailable:$available");
-        if (available) {
-          _loadForm(action: action, onError: onError);
-        } else {
-          if (action != null) {
-            action();
-          }
-        }
-      },
-      (FormError formError) {
-        _errorLog("_consentInfo errorCode:${formError.errorCode} message:${formError.message}");
-        if (onError != null) {
-          onError();
-        }
-      },
-    );
-  }
-
-  void _loadForm({ConsentCallback? action, ConsentCallback? onError}) {
-    ConsentForm.loadConsentForm(
-      (ConsentForm consentForm) async {
-        final before = await ConsentInformation.instance.getConsentStatus();
-        if (before == ConsentStatus.required) {
-          consentForm.show((formError) async {
-            if (formError != null) _errorLog("show error: ${formError.message}");
-            await action?.call();
-          });
-        } else {
-          await action?.call();
-        }
-      },
-      (FormError formError) async {
-        _errorLog("_loadForm errorCode:${formError.errorCode} message:${formError.message}");
+    ConsentCallback? action,
+    ConsentCallback? onError,
+  }) {
+    showPrivacyOptionsForm().then((result) async {
+      if (result.error != null) {
         await onError?.call();
-      },
-    );
-  }
-
-  /// - [action] called when consentForm is dismissed, unavailable or after openAppSettings on iOS,
-  /// could be used to pop screen that was pushed during waiting on consentForm
-  /// (consentForm isn't showed immediately after calling [resetConsent]);
-  void resetConsent({ConsentRequestParameters? params, ConsentCallback? action, ConsentCallback? onError}) {
-    if (!Platform.isIOS) {
-      _resetConsent(params: params, action: action, onError: onError);
-      return;
-    }
-    AppTrackingTransparency.requestTrackingAuthorization().then((TrackingStatus status) {
-      _infoLog("trackingStatus:$status");
-      if (status == TrackingStatus.authorized || status == TrackingStatus.notSupported) {
-        _resetConsent(params: params, action: action, onError: onError);
-      } else if (status == TrackingStatus.denied || status == TrackingStatus.restricted) {
-        action?.call();
-        AppSettings.openAppSettings();
+      } else {
+        await action?.call();
       }
     });
   }
 
-  void _resetConsent({ConsentRequestParameters? params, ConsentCallback? action, ConsentCallback? onError}) {
+  Future<FormError?> _requestConsentInfoUpdate(
+    ConsentRequestParameters params,
+  ) {
+    final completer = Completer<FormError?>();
     ConsentInformation.instance.requestConsentInfoUpdate(
-      params ?? _emptyParams,
-      () async {
-        final bool available = await ConsentInformation.instance.isConsentFormAvailable();
-        _infoLog("isConsentFormAvailable:$available");
-        if (available) {
-          _loadFormAgain(action: action, onError: onError);
-        } else if (action != null) {
-          action();
-        }
+      params,
+      () {
+        if (!completer.isCompleted) completer.complete();
       },
-      (FormError formError) {
-        _errorLog("_resetConsent errorCode:${formError.errorCode} message:${formError.message}");
-        if (onError != null) {
-          onError();
-        }
+      (formError) {
+        _errorLog(
+          'requestConsentInfoUpdate errorCode:${formError.errorCode} '
+          'message:${formError.message}',
+        );
+        if (!completer.isCompleted) completer.complete(formError);
       },
     );
+    return completer.future;
   }
 
-  void _loadFormAgain({ConsentCallback? action, ConsentCallback? onError}) {
-    ConsentForm.loadConsentForm(
-      (ConsentForm consentForm) async {
-        final ConsentStatus before = await ConsentInformation.instance.getConsentStatus();
-        _infoLog("before: $before");
-        if ([ConsentStatus.notRequired, ConsentStatus.required, ConsentStatus.obtained].contains(before)) {
-          consentForm.show((formError) async {
-            if (formError != null) _errorLog("show error: ${formError.message}");
-            await action?.call();
-          });
-        } else {
-          await action?.call();
-        }
-      },
-      (FormError formError) {
-        _errorLog("_loadFormAgain errorCode:${formError.errorCode} message:${formError.message}");
-        if (onError != null) {
-          onError();
-        }
-      },
+  Future<FormError?> _loadAndShowConsentFormIfRequired() {
+    final completer = Completer<FormError?>();
+    ConsentForm.loadAndShowConsentFormIfRequired((formError) {
+      if (formError != null) {
+        _errorLog(
+          'loadAndShowConsentFormIfRequired errorCode:${formError.errorCode} '
+          'message:${formError.message}',
+        );
+      }
+      if (!completer.isCompleted) completer.complete(formError);
+    });
+    return completer.future;
+  }
+
+  Future<AdConsentResult> _snapshot({
+    TrackingStatus trackingStatus = TrackingStatus.notSupported,
+    FormError? error,
+  }) async {
+    final values = await Future.wait<Object>([
+      ConsentInformation.instance.canRequestAds(),
+      ConsentInformation.instance.getConsentStatus(),
+      ConsentInformation.instance.getPrivacyOptionsRequirementStatus(),
+    ]);
+
+    return AdConsentResult(
+      canRequestAds: values[0] as bool,
+      consentStatus: values[1] as ConsentStatus,
+      privacyOptionsRequirementStatus:
+          values[2] as PrivacyOptionsRequirementStatus,
+      trackingStatus: trackingStatus,
+      error: error,
     );
   }
 }
 
 void _infoLog(Object? object) {
   if (!kDebugMode) return;
-  printY("[AdConsent] $object");
+  printY('[AdConsent] $object');
 }
 
 void _errorLog(Object? object) {
   if (!kDebugMode) return;
-  printR("[AdConsent] ⚠️ ERROR $object");
+  printR('[AdConsent] ⚠️ ERROR $object');
 }

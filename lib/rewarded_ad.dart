@@ -6,9 +6,15 @@ import 'utils.dart';
 /// Must be used once before any [showRewardedAd].
 /// Sets [adUnitId] for RewardedAd.
 /// - [loadingTicks] - times 200ms is the maximum ad loading time; default 25 (5 seconds); specifies how many times to check if the ad has been loaded before aborting
-void initRewardedAd({required String adUnitId, int? loadingTicks, int? maxFailedLoadAttempts}) => _RewardedAdSingleton
-    .instance
-    .init(adUnitId: adUnitId, loadingTicks: loadingTicks, maxFailedLoadAttempts: maxFailedLoadAttempts);
+void initRewardedAd({
+  required String adUnitId,
+  int? loadingTicks,
+  int? maxFailedLoadAttempts,
+}) => _RewardedAdSingleton.instance.init(
+  adUnitId: adUnitId,
+  loadingTicks: loadingTicks,
+  maxFailedLoadAttempts: maxFailedLoadAttempts,
+);
 
 /// Loads and shows RewardedAd. IMPORTANT: New RewardedAd isn't loaded after closing previous.
 /// Loading is stopped after 5s.
@@ -26,7 +32,12 @@ Future<void> showRewardedAd({
   onAdFailedToShowFullScreenContent: onFailed,
 );
 
-void setPersonalizedRewardedAds(bool value) => _RewardedAdSingleton.instance._setPersonalizedAds(value);
+void setPersonalizedRewardedAds(bool value) =>
+    _RewardedAdSingleton.instance._setPersonalizedAds(value);
+
+/// Enables ad loading only after UMP reports that ads may be requested.
+void setRewardedAdsAllowed(bool value) =>
+    _RewardedAdSingleton.instance.setAdsRequestAllowed(value);
 
 class _RewardedAdSingleton {
   // make this a singleton class
@@ -45,10 +56,20 @@ class _RewardedAdSingleton {
   int _loadAttempts = 0;
   String? _adUnitId;
   bool _isReady = false;
+  bool _adsRequestAllowed = false;
   int _loadingTicks = 25;
   int _maxFailedLoadAttempts = 2;
 
-  void init({required String adUnitId, int? loadingTicks, int? maxFailedLoadAttempts}) {
+  void setAdsRequestAllowed(bool value) {
+    _adsRequestAllowed = value;
+    if (!value) _disposeAd(_rewardedAd);
+  }
+
+  void init({
+    required String adUnitId,
+    int? loadingTicks,
+    int? maxFailedLoadAttempts,
+  }) {
     _adUnitId = adUnitId;
     _maxFailedLoadAttempts = maxFailedLoadAttempts ?? _maxFailedLoadAttempts;
     if (loadingTicks != null) _loadingTicks = loadingTicks;
@@ -56,8 +77,11 @@ class _RewardedAdSingleton {
 
   bool _isLoading = false;
   Future<void> _createRewardedAd() async {
+    if (!_adsRequestAllowed) return;
     if (_adUnitId == null) {
-      throw ArgumentError("Missing _adUnitId in _RewardedAdSingleton. Execute _RewardedAdSingleton.instance.init()");
+      throw ArgumentError(
+        "Missing _adUnitId in _RewardedAdSingleton. Execute _RewardedAdSingleton.instance.init()",
+      );
     }
     if (!_isLoading) {
       _isLoading = true;
@@ -112,6 +136,11 @@ class _RewardedAdSingleton {
       return;
     }
 
+    if (!_adsRequestAllowed) {
+      _executeCallback(onAdFailedToShowFullScreenContent);
+      return;
+    }
+
     if (_rewardedAd == null) await _createRewardedAd();
     _loadAttempts = 0;
 
@@ -123,16 +152,17 @@ class _RewardedAdSingleton {
 
     await _rewardedAd!.setImmersiveMode(true);
 
-    _rewardedAd?.fullScreenContentCallback = FullScreenContentCallback<RewardedAd>(
-      onAdFailedToShowFullScreenContent: (RewardedAd ad, AdError error) {
-        _errorLog('onAdFailedToShowFullScreenContent: $error');
-        _disposeAd(ad);
-        _executeCallback(onAdFailedToShowFullScreenContent);
-      },
-      onAdDismissedFullScreenContent: (RewardedAd ad) {
-        _disposeAd(ad);
-      },
-    );
+    _rewardedAd?.fullScreenContentCallback =
+        FullScreenContentCallback<RewardedAd>(
+          onAdFailedToShowFullScreenContent: (RewardedAd ad, AdError error) {
+            _errorLog('onAdFailedToShowFullScreenContent: $error');
+            _disposeAd(ad);
+            _executeCallback(onAdFailedToShowFullScreenContent);
+          },
+          onAdDismissedFullScreenContent: (RewardedAd ad) {
+            _disposeAd(ad);
+          },
+        );
 
     if (_rewardedAd != null) {
       _rewardedAd!.show(

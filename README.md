@@ -1,39 +1,81 @@
-<!--
-This README describes the package. If you publish this package to pub.dev,
-this README's contents appear on the landing page for your package.
+# Flutter API
 
-For information about how to write a good package README, see the guide for
-[writing package pages](https://dart.dev/guides/libraries/writing-package-pages).
+Shared Flutter services used by Netigen tools. The package provides:
 
-For general information about developing packages, see the Dart guide for
-[creating packages](https://dart.dev/guides/libraries/create-library-packages)
-and the Flutter guide for
-[developing packages and plugins](https://flutter.dev/developing-packages).
--->
+- Google UMP consent and an optional iOS ATT request,
+- consent-gated interstitial, rewarded, and adaptive banner ads,
+- in-app purchase and subscription orchestration,
+- deterministic Google Play base-plan and introductory-offer selection,
+- reusable Netigen web, intro, and survey screens.
 
-TODO: Put a short description of the package here that helps potential users
-know whether this package might be useful for them.
+## Requirements
 
-## Features
+- Flutter 3.44 or newer
+- Dart 3.12 or newer
+- Android projects compatible with Google Play Billing Library 8
+- platform configuration for Google Mobile Ads and in-app purchases
 
-TODO: List what your package can do. Maybe include images, gifs, or videos.
+Always depend on an immutable release tag. Do not depend on `main`.
 
-## Getting started
-
-TODO: List prerequisites and provide or point to information on how to
-start using the package.
-
-## Usage
-
-TODO: Include short and useful examples for package users. Add longer examples
-to `/example` folder.
-
-```dart
-const like = 'sample';
+```yaml
+flutter_api:
+  git:
+    url: https://github.com/netigenkluzowicz/Flutter_API.git
+    ref: <release-tag>
 ```
 
-## Additional information
+## Privacy and ads
 
-TODO: Tell users more about the package: where to find more information, how to
-contribute to the package, how to file issues, what response they can expect
-from the package authors, and more.
+Call `initAdsParameters` to configure ad unit IDs. It does not initialize the
+Mobile Ads SDK or load an ad. Then call `showConsent` after the splash screen.
+The SDK starts and the first interstitial can load only if a fresh UMP update
+returns `canRequestAds == true`.
+
+Applications must:
+
+- show a visible Privacy choices setting when
+  `privacyOptionsRequired == true`,
+- call `AdConsent.showPrivacyOptionsForm()` from that setting,
+- pass `adsCanRequest && !premiumUser` to `AdaptiveBannerAd.enabled`,
+- use interstitials only at natural transitions,
+- provide their own privacy policy, Google Play Data Safety answers, and Apple
+  App Privacy disclosures.
+
+UMP is consent infrastructure; it does not by itself make an application legally
+compliant.
+
+## Purchases and subscriptions
+
+`PaymentService.initParameters` requires a verification callback. Production
+applications must validate purchase tokens or signed transactions with a
+trusted backend. The package no longer contains a hard-coded verification
+endpoint and does not approve purchases by default.
+
+Google Play trials are selected by base plan and, optionally, an offer tag:
+
+```dart
+final trial = PaymentService.instance.trialProductById(
+  'premium_yearly',
+  basePlanId: 'annual',
+  offerTag: 'free-trial',
+);
+```
+
+When buying a `GooglePlayProductDetails`, the corresponding `offerToken` is
+passed through `GooglePlayPurchaseParam`. Trial duration and renewal price are
+configured in Play Console or App Store Connect and must be displayed clearly
+by the application's paywall.
+
+Local StoreKit 2 expiration parsing remains available only as an explicit
+compatibility option. Remote verification is the default.
+
+## Testing
+
+Use Google's test ad unit IDs in debug builds and Play/App Store sandbox
+accounts for purchases. At minimum, applications should cover:
+
+- consent required, not required, unavailable, and privacy-options flows,
+- premium users never loading ads,
+- trial and regular offer selection,
+- purchase pending, canceled, invalid, restored, expired, and refunded states.
+

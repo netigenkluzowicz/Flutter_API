@@ -56,9 +56,11 @@ class _DonateWebviewState extends State<DonateWebView> {
       params = const PlatformWebViewControllerCreationParams();
     }
 
-    final WebViewController controller = WebViewController.fromPlatformCreationParams(params);
+    final WebViewController controller =
+        WebViewController.fromPlatformCreationParams(params);
 
-    final String url = '${widget.serverUrl}?platform=flutter&locale=${widget.locale}'
+    final String url =
+        '${widget.serverUrl}?platform=flutter&locale=${widget.locale}'
         '&options[0]=${widget.option0}&options[1]=${widget.option1}&options[2]=${widget.option2}';
     controller
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
@@ -99,7 +101,8 @@ class _DonateWebviewState extends State<DonateWebView> {
 
     if (controller.platform is AndroidWebViewController) {
       AndroidWebViewController.enableDebugging(true);
-      (controller.platform as AndroidWebViewController).setMediaPlaybackRequiresUserGesture(false);
+      (controller.platform as AndroidWebViewController)
+          .setMediaPlaybackRequiresUserGesture(false);
     }
 
     setState(() {
@@ -113,12 +116,11 @@ class _DonateWebviewState extends State<DonateWebView> {
       height: widget.height,
       width: double.infinity,
       child: (_controller != null)
-          ? WebViewWidget(
-              controller: _controller!,
-            )
+          ? WebViewWidget(controller: _controller!)
           : Center(
-              child:
-                  kIsWeb || Platform.isAndroid ? const CircularProgressIndicator() : const CupertinoActivityIndicator(),
+              child: kIsWeb || Platform.isAndroid
+                  ? const CircularProgressIndicator()
+                  : const CupertinoActivityIndicator(),
             ),
     );
   }

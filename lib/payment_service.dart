@@ -1,23 +1,28 @@
 import 'dart:async';
-import 'dart:convert' show jsonDecode, jsonEncode;
+import 'dart:convert' show jsonDecode;
 import 'dart:io';
 
 import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:flutter/services.dart' show PlatformException;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:http/http.dart' as http;
 import 'package:in_app_purchase/in_app_purchase.dart';
+import 'package:in_app_purchase_android/in_app_purchase_android.dart';
 import 'package:in_app_purchase_storekit/in_app_purchase_storekit.dart'
     show InAppPurchaseStoreKitPlatformAddition, AppStoreProduct2Details;
-import 'package:in_app_purchase_storekit/store_kit_2_wrappers.dart' show SK2Product, SK2ProductType;
+import 'package:in_app_purchase_storekit/store_kit_2_wrappers.dart'
+    show SK2Product, SK2ProductType;
 import 'package:in_app_purchase_storekit/store_kit_wrappers.dart'
-    show SKError, SKPaymentQueueDelegateWrapper, SKPaymentTransactionWrapper, SKStorefrontWrapper;
+    show
+        SKError,
+        SKPaymentQueueDelegateWrapper,
+        SKPaymentTransactionWrapper,
+        SKStorefrontWrapper;
 
 import 'interstitial_ad.dart';
+import 'subscription_offer_selector.dart';
 import 'utils.dart';
 
 const bool kInitialPremiumUser = false;
-const bool kVerifyIosLocally = true;
 
 /// - idle
 /// - pending
@@ -46,18 +51,22 @@ class PaymentService {
     } else {
       enableInterstitialAd();
     }
-    _boughtProductIdsStreamController = StreamController<List<String>>.broadcast()..add(boughtProductIds.toList());
-    _paymentStatusStreamController = StreamController<PaymentStatus>.broadcast()..add(PaymentStatus.idle);
+    _boughtProductIdsStreamController =
+        StreamController<List<String>>.broadcast()
+          ..add(boughtProductIds.toList());
+    _paymentStatusStreamController = StreamController<PaymentStatus>.broadcast()
+      ..add(PaymentStatus.idle);
   }
 
-  PaymentVerifyCallback _verifyPurchaseCallbackAlwaysTrue = (_) => Future<bool>.value(true);
+  late PaymentVerifyCallback _verifyPurchaseCallback;
 
   bool _productIdsProvided = false;
   Set<String> _activeProductIds = {};
   Set<String> _iosSubscriptionProductIds = {};
   Set<String> _allProductIds = {};
   Set<String> _premiumProductIds = {};
-  int _restoringOnStartTicks = 5;
+  int _restoringOnStartTicks = 30;
+  bool _verifyIosSubscriptionsLocally = false;
 
   // PurchaseDetails.purchaseID changes between app launches so cannot be used
   String? _cachedProductId;
@@ -82,20 +91,24 @@ class PaymentService {
     required Set<String> premiumProductIds,
     Duration? receiptValidationChecking,
     Duration? iosSubscriptionExtension,
-    PaymentVerifyCallback? verifyPurchaseCallback,
-    int restoringOnStartTicks = 5,
+    required PaymentVerifyCallback verifyPurchaseCallback,
+    bool verifyIosSubscriptionsLocally = false,
+    int restoringOnStartTicks = 30,
   }) async {
     _activeProductIds = activeProductIds;
     _iosSubscriptionProductIds = iosSubscriptionProductIds;
     _allProductIds = allProductIds;
     _premiumProductIds = premiumProductIds;
     _restoringOnStartTicks = restoringOnStartTicks;
-    if (verifyPurchaseCallback != null) _verifyPurchaseCallbackAlwaysTrue = verifyPurchaseCallback;
-    _receiptValidationChecking = receiptValidationChecking ?? _receiptValidationChecking;
-    _iosSubscriptionExtension = iosSubscriptionExtension ?? _iosSubscriptionExtension;
+    _verifyPurchaseCallback = verifyPurchaseCallback;
+    _verifyIosSubscriptionsLocally = verifyIosSubscriptionsLocally;
+    _receiptValidationChecking =
+        receiptValidationChecking ?? _receiptValidationChecking;
+    _iosSubscriptionExtension =
+        iosSubscriptionExtension ?? _iosSubscriptionExtension;
     _productIdsProvided = true;
 
-    if (Platform.isIOS) {
+    if (Platform.isIOS && _verifyIosSubscriptionsLocally) {
       final results = await Future.wait<String?>([
         _secure.read(key: _premiumExpirationMillisKey),
         _secure.read(key: _lastReceiptValidationMillisKey),
@@ -103,10 +116,16 @@ class PaymentService {
       ]);
       _premiumExpiration = results[0] == null
           ? null
-          : DateTime.fromMillisecondsSinceEpoch(int.parse(results[0]!), isUtc: true);
+          : DateTime.fromMillisecondsSinceEpoch(
+              int.parse(results[0]!),
+              isUtc: true,
+            );
       _lastReceiptValidation = results[1] == null
           ? null
-          : DateTime.fromMillisecondsSinceEpoch(int.parse(results[1]!), isUtc: true);
+          : DateTime.fromMillisecondsSinceEpoch(
+              int.parse(results[1]!),
+              isUtc: true,
+            );
       _cachedProductId = results[2];
 
       _infoLog(
@@ -114,7 +133,9 @@ class PaymentService {
       );
       if (_cachedProductId != null &&
           _premiumExpiration != null &&
-          _premiumExpiration!.isAfter(DateTime.now().subtract(_iosSubscriptionExtension))) {
+          _premiumExpiration!.isAfter(
+            DateTime.now().subtract(_iosSubscriptionExtension),
+          )) {
         _infoLog("deliverCachedProduct cachedProductId:$_cachedProductId");
         _deliverCachedProduct(_cachedProductId!);
       }
@@ -134,8 +155,9 @@ class PaymentService {
     );
 
     if (Platform.isIOS && !_delegateSet) {
-      final InAppPurchaseStoreKitPlatformAddition iosPlatformAddition = _inAppPurchase
-          .getPlatformAddition<InAppPurchaseStoreKitPlatformAddition>();
+      final InAppPurchaseStoreKitPlatformAddition iosPlatformAddition =
+          _inAppPurchase
+              .getPlatformAddition<InAppPurchaseStoreKitPlatformAddition>();
       await iosPlatformAddition.setDelegate(SKPaymentQueueDelegate());
       _delegateSet = true;
     }
@@ -143,7 +165,8 @@ class PaymentService {
 
   StreamSubscription<List<PurchaseDetails>>? _subscription;
 
-  final Completer<void> _stopWaitingForInitialRestoringCompleter = Completer<void>();
+  final Completer<void> _stopWaitingForInitialRestoringCompleter =
+      Completer<void>();
   List<ProductDetails> _allProducts = <ProductDetails>[];
   final List<ProductDetails> _iosTrialProducts = <ProductDetails>[];
   List<String> _notFoundIds = <String>[];
@@ -155,11 +178,14 @@ class PaymentService {
   String? _queryProductError;
 
   bool get premiumUser => _filterPremiumPurchases(_purchases).isNotEmpty;
-  List<ProductDetails> get activeProducts => _filterActiveProducts(_allProducts);
-  Set<String> get iosTrialProductsIds => _iosTrialProducts.map((p) => p.id).toSet();
+  List<ProductDetails> get activeProducts =>
+      _filterActiveProducts(_allProducts);
+  Set<String> get iosTrialProductsIds =>
+      _iosTrialProducts.map((p) => p.id).toSet();
   List<String> get notFoundIds => _notFoundIds;
   List<PurchaseDetails> get purchases => _purchases;
-  Set<String> get boughtProductIds => _purchases.map((p) => p.productID).toSet();
+  Set<String> get boughtProductIds =>
+      _purchases.map((p) => p.productID).toSet();
   bool get isAvailable => _isAvailable;
   bool get purchasePending => _purchasePending;
   bool get loading => _loading;
@@ -167,41 +193,99 @@ class PaymentService {
 
   late StreamController<List<String>> _boughtProductIdsStreamController;
   late StreamController<PaymentStatus> _paymentStatusStreamController;
-  Stream<List<String>> get boughtProductIdsStream => _boughtProductIdsStreamController.stream;
-  Stream<PaymentStatus> get paymentStatusStream => _paymentStatusStreamController.stream;
+  Stream<List<String>> get boughtProductIdsStream =>
+      _boughtProductIdsStreamController.stream;
+  Stream<PaymentStatus> get paymentStatusStream =>
+      _paymentStatusStreamController.stream;
 
-  ProductDetails? trialProductById(String id) {
-    final List<ProductDetails> prods = _allProducts.where((p) => p.id == id).toList();
+  ProductDetails? trialProductById(
+    String id, {
+    String? basePlanId,
+    String? offerTag,
+  }) {
+    final products = _allProducts.where((product) => product.id == id).toList();
     if (Platform.isIOS) {
-      if (prods.isNotEmpty && iosTrialProductsIds.contains(id)) {
-        return prods[0];
+      if (products.isNotEmpty && iosTrialProductsIds.contains(id)) {
+        return products.first;
       } else {
         return null;
       }
     }
-    if (prods.length == 2) return prods[0];
-    return null;
+
+    return _androidSubscriptionProduct(
+      products,
+      basePlanId: basePlanId,
+      offerTag: offerTag,
+      requiresFreeTrial: true,
+    );
   }
 
-  ProductDetails? productById(String id) {
-    final List<ProductDetails> prods = _allProducts.where((p) => p.id == id).toList();
-    if (prods.length == 2) return prods[1];
-    if (prods.length == 1) return prods[0];
-    return null;
+  ProductDetails? productById(String id, {String? basePlanId}) {
+    final products = _allProducts.where((product) => product.id == id).toList();
+    if (!Platform.isAndroid) {
+      return products.isEmpty ? null : products.first;
+    }
+
+    return _androidSubscriptionProduct(
+          products,
+          basePlanId: basePlanId,
+          requiresFreeTrial: false,
+        ) ??
+        (products.isEmpty ? null : products.first);
+  }
+
+  ProductDetails? _androidSubscriptionProduct(
+    List<ProductDetails> products, {
+    String? basePlanId,
+    String? offerTag,
+    required bool requiresFreeTrial,
+  }) {
+    final candidates = <SubscriptionOfferCandidate<ProductDetails>>[];
+    for (final product in products.whereType<GooglePlayProductDetails>()) {
+      final index = product.subscriptionIndex;
+      final offers = product.productDetails.subscriptionOfferDetails;
+      if (index == null || offers == null || index >= offers.length) continue;
+
+      final offer = offers[index];
+      candidates.add(
+        SubscriptionOfferCandidate(
+          value: product,
+          basePlanId: offer.basePlanId,
+          offerId: offer.offerId,
+          offerTags: offer.offerTags,
+          hasFreeTrial: offer.pricingPhases.any(
+            (phase) => phase.priceAmountMicros == 0,
+          ),
+        ),
+      );
+    }
+    return selectSubscriptionOffer(
+      candidates,
+      basePlanId: basePlanId,
+      offerTag: offerTag,
+      requiresFreeTrial: requiresFreeTrial,
+    );
   }
 
   final _inAppPurchase = InAppPurchase.instance;
 
-  Future<void> _listenToPurchaseUpdated(List<PurchaseDetails> purchaseDetailsList) async {
+  Future<void> _listenToPurchaseUpdated(
+    List<PurchaseDetails> purchaseDetailsList,
+  ) async {
     if (purchaseDetailsList.isEmpty) {
       _infoLog("purchaseDetailsList empty");
+      _completeInitialRestoring(source: "empty purchase update");
       return;
     }
 
     if (purchaseDetailsList.length > 1) {
       purchaseDetailsList.sort((a, b) {
-        DateTime dateA = parseTransactionDate(a.transactionDate) ?? DateTime.fromMillisecondsSinceEpoch(0);
-        DateTime dateB = parseTransactionDate(b.transactionDate) ?? DateTime.fromMillisecondsSinceEpoch(0);
+        DateTime dateA =
+            parseTransactionDate(a.transactionDate) ??
+            DateTime.fromMillisecondsSinceEpoch(0);
+        DateTime dateB =
+            parseTransactionDate(b.transactionDate) ??
+            DateTime.fromMillisecondsSinceEpoch(0);
         return dateB.compareTo(dateA);
       });
     }
@@ -215,27 +299,32 @@ class PaymentService {
     }
 
     for (PurchaseDetails p in purchaseDetailsList) {
-      if (Platform.isIOS && _iosSubscriptionProductIds.contains(p.productID)) continue;
-      _infoLog("transactionDate: ${p.transactionDate} ${p.status} ${p.productID}");
+      _infoLog(
+        "transactionDate: ${p.transactionDate} ${p.status} ${p.productID}",
+      );
       switch (p.status) {
         case PurchaseStatus.pending:
           _setPending();
           break;
         case PurchaseStatus.error:
+          _purchasePending = false;
           _isBuying = false;
           _handleError(p.error);
           break;
 
         case PurchaseStatus.canceled:
+          _purchasePending = false;
           _isBuying = false;
           _paymentStatusStreamController.add(PaymentStatus.canceled);
           break;
 
         case PurchaseStatus.purchased:
         case PurchaseStatus.restored:
+          _purchasePending = false;
           _isBuying = false;
           if (!boughtProductIds.contains(p.productID)) {
-            if (Platform.isIOS && _iosSubscriptionProductIds.contains(p.productID)) {
+            if (Platform.isIOS &&
+                _iosSubscriptionProductIds.contains(p.productID)) {
               // verification below after list sorting
               break;
             }
@@ -255,14 +344,24 @@ class PaymentService {
 
     if (Platform.isIOS) {
       final DateTime now = DateTime.now();
-      final List iosPurchasesToValidation = _getIosPurchasesToValidation(purchaseDetailsList);
+      final List iosPurchasesToValidation = _getIosPurchasesToValidation(
+        purchaseDetailsList,
+      );
       for (PurchaseDetails p in iosPurchasesToValidation) {
-        if (kVerifyIosLocally) {
+        if (_verifyIosSubscriptionsLocally) {
           try {
-            final Map<String, dynamic> iosData = jsonDecode(p.verificationData.localVerificationData);
-            final DateTime expirationTime = DateTime.fromMillisecondsSinceEpoch(iosData["expiresDate"]);
-            if (expirationTime.isAfter(now.subtract(_iosSubscriptionExtension))) {
-              _infoLog("${p.productID} verified from localVerificationData $expirationTime");
+            final Map<String, dynamic> iosData = jsonDecode(
+              p.verificationData.localVerificationData,
+            );
+            final DateTime expirationTime = DateTime.fromMillisecondsSinceEpoch(
+              iosData["expiresDate"],
+            );
+            if (expirationTime.isAfter(
+              now.subtract(_iosSubscriptionExtension),
+            )) {
+              _infoLog(
+                "${p.productID} verified from localVerificationData $expirationTime",
+              );
               _deliverProduct(p);
               _storePremiumExpiration(
                 cachedProductId: p.productID,
@@ -274,7 +373,7 @@ class PaymentService {
             _errorLog(e);
           }
         } else {
-          final bool valid = await _verifyIosSubscriptionPurchase(p);
+          final bool valid = await _verifyPurchaseCallback(p);
           if (valid) {
             _deliverProduct(p);
           } else {
@@ -291,7 +390,9 @@ class PaymentService {
     }
   }
 
-  List<PurchaseDetails> _getIosPurchasesToValidation(List<PurchaseDetails> sortedPurchaseDetailsList) {
+  List<PurchaseDetails> _getIosPurchasesToValidation(
+    List<PurchaseDetails> sortedPurchaseDetailsList,
+  ) {
     if (sortedPurchaseDetailsList.isEmpty) return [];
     final List<PurchaseDetails> filtered = sortedPurchaseDetailsList
         .where(
@@ -320,72 +421,6 @@ class PaymentService {
     }
   }
 
-  Future<bool> _verifyIosSubscriptionPurchase(PurchaseDetails purchaseDetails) async {
-    if (Platform.isIOS && _iosSubscriptionProductIds.contains(purchaseDetails.productID)) {
-      _infoLog("purchaseID${purchaseDetails.purchaseID} _premiumExpiration $_premiumExpiration");
-      final now = DateTime.now();
-      bool subscriptionExtended = false;
-      if (_lastReceiptValidation != null &&
-          DateTime.now().difference(_lastReceiptValidation!) < _receiptValidationChecking &&
-          _premiumExpiration != null) {
-        if (_premiumExpiration!.isAfter(now)) {
-          _infoLog("${purchaseDetails.productID} verified from local db ${now.difference(_lastReceiptValidation!)}");
-          return true;
-        } else if (_premiumExpiration!.isAfter(now.subtract(_iosSubscriptionExtension))) {
-          subscriptionExtended = true;
-          _infoLog("${purchaseDetails.productID} verified from local db ${now.difference(_lastReceiptValidation!)}");
-        }
-      }
-
-      // refresh payment verification but approve payment if it expired before subscription extension
-      final bool expiredOrExtended = false || subscriptionExtended;
-      try {
-        const String url = 'https://apis.netigen.eu/api/payments/appstore2';
-        // const String url = 'http://192.168.1.203:1337/api/payments/appstore2';
-        final int beforeFetch = DateTime.now().millisecondsSinceEpoch;
-
-        final response = await http.post(
-          Uri.parse(url),
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode({'jws': purchaseDetails.verificationData.serverVerificationData}),
-        );
-
-        if (response.statusCode == 200) {
-          final responseData = jsonDecode(response.body);
-          _infoLog(
-            'remote verification response $responseData in ${DateTime.now().millisecondsSinceEpoch - beforeFetch}ms',
-          );
-          final DateTime expirationTime = DateTime.fromMillisecondsSinceEpoch(
-            int.parse(responseData['data']['expiresDateMs']),
-            isUtc: true,
-          );
-          final bool valid = bool.parse("${responseData['data']['valid']}");
-          final bool notExpired = now.isBefore(expirationTime);
-          if (kDebugMode) {
-            _infoLog(
-              'valid:$valid ${notExpired ? "NOTEXPIRED" : "EXPIRED"} ${now.toIso8601String()}(now) ${notExpired ? "<" : ">"} ${expirationTime.toIso8601String()}(exp) purchaseID:${purchaseDetails.purchaseID}',
-            );
-          }
-          if (valid) {
-            _storePremiumExpiration(
-              cachedProductId: purchaseDetails.productID,
-              premiumExpiration: expirationTime,
-              lastReceiptValidation: now,
-            );
-          }
-          return notExpired || subscriptionExtended;
-        } else {
-          _infoLog('remote verification ${response.statusCode} ${response.body}');
-          return expiredOrExtended;
-        }
-      } catch (e) {
-        _errorLog("remote verify error: $e");
-        return expiredOrExtended;
-      }
-    }
-    return false;
-  }
-
   Future<bool> _verifyPurchase(PurchaseDetails purchaseDetails) async {
     if (kDebugMode) {
       debugPrint("\n");
@@ -397,18 +432,20 @@ class PaymentService {
       );
     }
 
-    if (Platform.isIOS && _iosSubscriptionProductIds.contains(purchaseDetails.productID)) {
+    if (Platform.isIOS &&
+        _iosSubscriptionProductIds.contains(purchaseDetails.productID)) {
       return false;
     }
 
-    // android
-    final bool verified = await _verifyPurchaseCallbackAlwaysTrue(purchaseDetails);
-    return verified;
-    // return Future<bool>.value(true);
+    return _verifyPurchaseCallback(purchaseDetails);
   }
 
   void _deliverProduct(PurchaseDetails purchaseDetails) {
     disableInterstitialAd();
+    _purchasePending = false;
+    _purchases.removeWhere(
+      (purchase) => purchase.productID == purchaseDetails.productID,
+    );
     _purchases.add(purchaseDetails);
     _boughtProductIdsStreamController.add(boughtProductIds.toList());
     _paymentStatusStreamController.add(PaymentStatus.completed);
@@ -418,6 +455,7 @@ class PaymentService {
 
   void _deliverCachedProduct(String productId) {
     disableInterstitialAd();
+    _purchasePending = false;
     _purchases.add(
       PurchaseDetails(
         productID: productId,
@@ -437,13 +475,17 @@ class PaymentService {
   }
 
   void _handleError(IAPError? error) {
+    _purchasePending = false;
+    _isBuying = false;
     _errorLog("_handleError $error");
     _paymentStatusStreamController.add(PaymentStatus.errored);
   }
 
   void _handleInvalidPurchase(PurchaseDetails purchaseDetails) {
+    _purchasePending = false;
+    _isBuying = false;
     _paymentStatusStreamController.add(PaymentStatus.errored);
-    _infoLog("_handleInvalidPurchase (NOT IMPLEMENTED) ${purchaseDetails.productID}");
+    _errorLog("Purchase verification failed: ${purchaseDetails.productID}");
   }
 
   void _setPending() {
@@ -455,41 +497,44 @@ class PaymentService {
 
   Future<void> loadProducts() async {
     if (!_productIdsProvided) {
-      throw ArgumentError("Product ids not provided. Use PaymentService.initParameters");
+      throw ArgumentError(
+        "Product ids not provided. Use PaymentService.initParameters",
+      );
     }
-    _isAvailable = await _inAppPurchase.isAvailable();
-    if (!_isAvailable) {
-      _loading = false;
-      return;
-    }
+    _loading = true;
+    _queryProductError = null;
+    try {
+      _isAvailable = await _inAppPurchase.isAvailable();
+      if (!_isAvailable) return;
 
-    final response = await _inAppPurchase.queryProductDetails(_allProductIds);
+      final response = await _inAppPurchase.queryProductDetails(_allProductIds);
 
-    if (response.error != null) {
-      _handleError(response.error);
-      _loading = false;
-      _queryProductError = response.error!.message;
       _allProducts = response.productDetails;
       _notFoundIds = response.notFoundIDs;
+      _iosTrialProducts.clear();
       if (Platform.isIOS) {
         await _loadIosTrialProducts(response.productDetails);
       }
-      return;
-    }
 
-    _allProducts = response.productDetails;
-    _notFoundIds = response.notFoundIDs;
-    if (Platform.isIOS) {
-      await _loadIosTrialProducts(response.productDetails);
-    }
-    _infoLog("productDetails: ${_allProducts.length}");
-    _infoLog("notFoundIDs: ${_notFoundIds.length}");
-    for (var element in _allProducts) {
-      _infoLog("${element.id} ${element.price}");
+      if (response.error != null) {
+        _queryProductError = response.error!.message;
+        _handleError(response.error);
+        return;
+      }
+
+      _infoLog("productDetails: ${_allProducts.length}");
+      _infoLog("notFoundIDs: ${_notFoundIds.length}");
+      for (final element in _allProducts) {
+        _infoLog("${element.id} ${element.price}");
+      }
+    } finally {
+      _loading = false;
     }
   }
 
-  Future<void> _loadIosTrialProducts(List<ProductDetails> productDetails) async {
+  Future<void> _loadIosTrialProducts(
+    List<ProductDetails> productDetails,
+  ) async {
     if (!Platform.isIOS) return;
     await Future.wait(
       productDetails.map((p) async {
@@ -506,7 +551,10 @@ class PaymentService {
     );
   }
 
-  void _completeInitialRestoring({bool timeout = false, required String source}) {
+  void _completeInitialRestoring({
+    bool timeout = false,
+    required String source,
+  }) {
     if (!_stopWaitingForInitialRestoringCompleter.isCompleted) {
       _infoLog("_completeInitialRestoring: $source");
       _initialRestoringTimeouted = timeout;
@@ -520,10 +568,14 @@ class PaymentService {
   /// return bool if restore is successfull
   Future<bool> restorePurchases() async {
     if (!_productIdsProvided) {
-      throw ArgumentError("[PaymentService] ERROR: Product ids not provided. Use PaymentService.initParameters");
+      throw ArgumentError(
+        "[PaymentService] ERROR: Product ids not provided. Use PaymentService.initParameters",
+      );
     }
     try {
-      _infoLog("restorePurchases STARTED with products: ${_allProducts.length}");
+      _infoLog(
+        "restorePurchases STARTED with products: ${_allProducts.length}",
+      );
       final start = DateTime.now().millisecondsSinceEpoch;
       await _inAppPurchase.restorePurchases();
       final end = DateTime.now().millisecondsSinceEpoch;
@@ -532,15 +584,18 @@ class PaymentService {
     } catch (e) {
       _completeInitialRestoring(source: "restorePurchases error");
       _errorLog(e);
-      if (e is SKError) _errorLog("restorePurchases ${e.code} ${e.domain} ${e.userInfo}");
+      if (e is SKError) {
+        _errorLog("restorePurchases ${e.code} ${e.domain} ${e.userInfo}");
+      }
       return false;
     }
   }
 
   void dispose() {
     if (Platform.isIOS) {
-      final InAppPurchaseStoreKitPlatformAddition iosPlatformAddition = _inAppPurchase
-          .getPlatformAddition<InAppPurchaseStoreKitPlatformAddition>();
+      final InAppPurchaseStoreKitPlatformAddition iosPlatformAddition =
+          _inAppPurchase
+              .getPlatformAddition<InAppPurchaseStoreKitPlatformAddition>();
       iosPlatformAddition.setDelegate(null);
       _delegateSet = false;
     }
@@ -569,7 +624,9 @@ class PaymentService {
       _infoLog("reloadPurchases in ${time2 - time1}ms");
     } catch (e) {
       _errorLog(e);
-      if (e is SKError) _errorLog("reloadPurchases ${e.code} ${e.domain} ${e.userInfo}");
+      if (e is SKError) {
+        _errorLog("reloadPurchases ${e.code} ${e.domain} ${e.userInfo}");
+      }
     }
   }
 
@@ -581,31 +638,52 @@ class PaymentService {
 
     _isBuying = true;
     try {
-      _infoLog("buyNonConsumable: ${productDetails.runtimeType} ${productDetails.id}");
-      await _inAppPurchase.buyNonConsumable(purchaseParam: PurchaseParam(productDetails: productDetails));
+      _infoLog(
+        "buyNonConsumable: ${productDetails.runtimeType} ${productDetails.id}",
+      );
+      final purchaseParam = productDetails is GooglePlayProductDetails
+          ? GooglePlayPurchaseParam(
+              productDetails: productDetails,
+              offerToken: productDetails.offerToken,
+            )
+          : PurchaseParam(productDetails: productDetails);
+      final started = await _inAppPurchase.buyNonConsumable(
+        purchaseParam: purchaseParam,
+      );
+      if (!started) {
+        _isBuying = false;
+        _paymentStatusStreamController.add(PaymentStatus.errored);
+      }
     } catch (e) {
+      _isBuying = false;
       if (e is PlatformException) {
         if (e.code.contains('cancelled')) {
           _paymentStatusStreamController.add(PaymentStatus.canceled);
+        } else {
+          _paymentStatusStreamController.add(PaymentStatus.errored);
         }
       }
       _errorLog("buyNonConsumable $e");
-    } finally {
-      _isBuying = false;
     }
   }
 
   bool get hasProducts => _filterActiveProducts(_allProducts).isNotEmpty;
 
   List<ProductDetails> _filterActiveProducts(List<ProductDetails> products) =>
-      products.where((element) => _activeProductIds.contains(element.id)).toList();
+      products
+          .where((element) => _activeProductIds.contains(element.id))
+          .toList();
 
-  List<PurchaseDetails> _filterPremiumPurchases(List<PurchaseDetails> purchases) =>
-      purchases.where((element) => _premiumProductIds.contains(element.productID)).toList();
+  List<PurchaseDetails> _filterPremiumPurchases(
+    List<PurchaseDetails> purchases,
+  ) => purchases
+      .where((element) => _premiumProductIds.contains(element.productID))
+      .toList();
 
   static const String _cachedProductIdKey = "cachedProductId";
   static const String _premiumExpirationMillisKey = "premiumExpirationMillis";
-  static const String _lastReceiptValidationMillisKey = "lastReceiptValidationMillis";
+  static const String _lastReceiptValidationMillisKey =
+      "lastReceiptValidationMillis";
   Future<void> _storePremiumExpiration({
     required String cachedProductId,
     required DateTime premiumExpiration,
@@ -616,7 +694,10 @@ class PaymentService {
     _lastReceiptValidation = lastReceiptValidation;
 
     final List<Future<void>> futures = [
-      _secure.write(key: _premiumExpirationMillisKey, value: premiumExpiration.millisecondsSinceEpoch.toString()),
+      _secure.write(
+        key: _premiumExpirationMillisKey,
+        value: premiumExpiration.millisecondsSinceEpoch.toString(),
+      ),
       _secure.write(
         key: _lastReceiptValidationMillisKey,
         value: lastReceiptValidation.millisecondsSinceEpoch.toString(),
@@ -636,7 +717,10 @@ class PaymentService {
 /// source: (https://github.com/flutter/packages/blob/main/packages/in_app_purchase/in_app_purchase_storekit/example/lib/example_payment_queue_delegate.dart)
 class SKPaymentQueueDelegate implements SKPaymentQueueDelegateWrapper {
   @override
-  bool shouldContinueTransaction(SKPaymentTransactionWrapper transaction, SKStorefrontWrapper storefront) {
+  bool shouldContinueTransaction(
+    SKPaymentTransactionWrapper transaction,
+    SKStorefrontWrapper storefront,
+  ) {
     return true;
   }
 
