@@ -255,7 +255,10 @@ mixin class InitialServiceMixin {
         iosSubscriptionProductIds: {},
         allProductIds: {},
         premiumProductIds: {},
-        verifyPurchaseCallback: (_) => Future<bool>.value(true),
+        // This default initializer has no application backend. Never grant an
+        // entitlement until an application supplies its verifier through
+        // [initPurchases].
+        verifyPurchaseCallback: (_) => Future<bool>.value(false),
         receiptValidationChecking: null,
         iosSubscriptionExtension: null,
       ),

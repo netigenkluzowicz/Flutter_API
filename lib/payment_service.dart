@@ -19,6 +19,7 @@ import 'package:in_app_purchase_storekit/store_kit_wrappers.dart'
         SKStorefrontWrapper;
 
 import 'interstitial_ad.dart';
+import 'rewarded_ad.dart';
 import 'subscription_offer_selector.dart';
 import 'utils.dart';
 
@@ -48,6 +49,7 @@ class PaymentService {
     _infoLog("constructor");
     if (kInitialPremiumUser) {
       disableInterstitialAd();
+      disableRewardedAd();
     } else {
       enableInterstitialAd();
     }
@@ -442,6 +444,7 @@ class PaymentService {
 
   void _deliverProduct(PurchaseDetails purchaseDetails) {
     disableInterstitialAd();
+    disableRewardedAd();
     _purchasePending = false;
     _purchases.removeWhere(
       (purchase) => purchase.productID == purchaseDetails.productID,
@@ -455,6 +458,7 @@ class PaymentService {
 
   void _deliverCachedProduct(String productId) {
     disableInterstitialAd();
+    disableRewardedAd();
     _purchasePending = false;
     _purchases.add(
       PurchaseDetails(
