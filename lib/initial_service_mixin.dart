@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import 'ad_consent.dart';
+import 'app_open_ad.dart';
 import 'interstitial_ad.dart';
 import 'payment_service.dart';
 import 'rewarded_ad.dart';
@@ -34,6 +35,7 @@ mixin class InitialServiceMixin {
   int get purchaseCheckPremiumTime => _purchaseCheckPremiumTime;
 
   bool _adsConfigured = false;
+  bool _appOpenAdsConfigured = false;
   bool _mobileAdsInitialized = false;
   bool _adsCanRequest = false;
   bool _privacyOptionsRequired = false;
@@ -64,24 +66,13 @@ mixin class InitialServiceMixin {
     if (!c.isCompleted) c.complete();
   }
 
-  Future<void> _waitForAdStart() async {
-    final Completer<void> completer = Completer<void>();
-    try {
-      await showInterstitialAd(onStartCallback: () => safeComplete(completer));
-    } catch (e) {
-      _errorLog("waitForAdStart error: $e");
-      safeComplete(completer);
-    }
-    return completer.future;
-  }
-
   /// Use after payments checking and after splash dropping.
   /// - [skipConsentAndAd] - true for premium user
   ///
   /// Uses:
-  /// - [AdConsent.consentInfo]
+  /// - [AdConsent.requestConsent]
   /// - [createInterstitialAd]
-  /// - [showInterstitialAd]
+  /// - [createAppOpenAd] / [showAppOpenAd] when configured
   Future<void> showConsent({
     bool skipConsentAndAd = false,
     bool showAdAfterConsent = false,
@@ -91,6 +82,7 @@ mixin class InitialServiceMixin {
       _adsCanRequest = false;
       setInterstitialAdsAllowed(false);
       setRewardedAdsAllowed(false);
+      setAppOpenAdsAllowed(false);
       return;
     }
 
@@ -104,6 +96,7 @@ mixin class InitialServiceMixin {
       _adsCanRequest = result.canRequestAds;
       setInterstitialAdsAllowed(_adsCanRequest);
       setRewardedAdsAllowed(_adsCanRequest);
+      setAppOpenAdsAllowed(_adsCanRequest);
 
       if (!_adsCanRequest) return;
       if (!_adsConfigured) {
@@ -115,16 +108,16 @@ mixin class InitialServiceMixin {
       await _initializeMobileAds();
 
       final afterConsent = sw.elapsedMilliseconds;
-      if (showAdAfterConsent) {
-        await createInterstitialAd();
-      } else {
-        unawaited(createInterstitialAd());
+      unawaited(createInterstitialAd());
+      if (_appOpenAdsConfigured) {
+        if (showAdAfterConsent) {
+          await createAppOpenAd();
+          await showAppOpenAd();
+        } else {
+          unawaited(createAppOpenAd());
+        }
       }
       final afterCreate = sw.elapsedMilliseconds;
-
-      if (showAdAfterConsent) {
-        await _waitForAdStart();
-      }
 
       final afterShow = sw.elapsedMilliseconds;
       _createAdTime = afterCreate - afterConsent;
@@ -133,6 +126,7 @@ mixin class InitialServiceMixin {
       _adsCanRequest = false;
       setInterstitialAdsAllowed(false);
       setRewardedAdsAllowed(false);
+      setAppOpenAdsAllowed(false);
       _errorLog("showConsent error: $e");
     }
   }
@@ -141,6 +135,8 @@ mixin class InitialServiceMixin {
   Future<void> initAdsParameters({
     required String interstitialAdUnitId,
     required String rewardedAdUnitId,
+    String? appOpenAdUnitId,
+    Duration appOpenAdMaxCacheDuration = const Duration(hours: 4),
     int loadingTicksInterstitialAd = 15,
     int loadingTicksRewardedAd = 25,
     int minIntervalBetweenInterstitialAdsInSecs = 60,
@@ -156,6 +152,13 @@ mixin class InitialServiceMixin {
         maxFailedLoadAttempts: maxFailedLoadAttempts,
       );
       _adsConfigured = true;
+      _appOpenAdsConfigured = appOpenAdUnitId != null;
+      if (appOpenAdUnitId != null) {
+        initAppOpenAd(
+          adUnitId: appOpenAdUnitId,
+          maxCacheDuration: appOpenAdMaxCacheDuration,
+        );
+      }
       initInterstitialAd(
         adUnitId: interstitialAdUnitId,
         loadingTicks: loadingTicksInterstitialAd,
@@ -248,8 +251,11 @@ mixin class InitialServiceMixin {
     const String androidRewardedTestId =
         'ca-app-pub-3940256099942544/5224354917';
     const String iOSRewardedTestId = 'ca-app-pub-3940256099942544/1712485313';
+    const String androidAppOpenTestId =
+        'ca-app-pub-3940256099942544/9257395921';
+    const String iOSAppOpenTestId = 'ca-app-pub-3940256099942544/5575463023';
 
-    await Future.wait<void>([
+    final initializations = <Future<void>>[
       initPurchases(
         activeProductIds: {},
         iosSubscriptionProductIds: {},
@@ -262,16 +268,26 @@ mixin class InitialServiceMixin {
         receiptValidationChecking: null,
         iosSubscriptionExtension: null,
       ),
-      initAdsParameters(
-        interstitialAdUnitId: Platform.isIOS
-            ? iOSInterstitalTestId
-            : androidInterstitalTestId,
-        rewardedAdUnitId: Platform.isIOS
-            ? iOSRewardedTestId
-            : androidRewardedTestId,
-        testDeviceIds: [],
-      ),
-    ]);
+    ];
+
+    if (kDebugMode) {
+      initializations.add(
+        initAdsParameters(
+          interstitialAdUnitId: Platform.isIOS
+              ? iOSInterstitalTestId
+              : androidInterstitalTestId,
+          rewardedAdUnitId: Platform.isIOS
+              ? iOSRewardedTestId
+              : androidRewardedTestId,
+          appOpenAdUnitId: Platform.isIOS
+              ? iOSAppOpenTestId
+              : androidAppOpenTestId,
+          testDeviceIds: [],
+        ),
+      );
+    }
+
+    await Future.wait(initializations);
   }
 
   /// Execute it after splash dropping. Should be overwritten and contain [showConsent].
