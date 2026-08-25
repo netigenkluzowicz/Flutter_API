@@ -78,6 +78,9 @@ class AppOpenAdState {
 
   void finishShow() => _isShowing = false;
 
+  /// Suppresses App Open Ad showing for the next foreground event.
+  void suppressNextForeground() => _ignoreNextForeground = true;
+
   /// Returns true only for a foreground event eligible to show an App Open Ad.
   bool shouldShowOnForeground() {
     if (_ignoreNextForeground) {

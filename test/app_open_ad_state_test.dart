@@ -33,7 +33,28 @@ void main() {
     expect(state.isReady, isFalse);
   });
 
-  test('a second foreground event cannot show the same ad twice', () {
+  test('suppression skips one eligible foreground event', () {
+    state.setAdsRequestAllowed(true);
+    final loadGeneration = state.beginLoad()!;
+    expect(state.completeLoad(loadGeneration), isTrue);
+
+    state.suppressNextForeground();
+
+    expect(state.shouldShowOnForeground(), isFalse);
+  });
+
+  test('foreground after suppression is eligible again', () {
+    state.setAdsRequestAllowed(true);
+    final loadGeneration = state.beginLoad()!;
+    expect(state.completeLoad(loadGeneration), isTrue);
+
+    state.suppressNextForeground();
+
+    expect(state.shouldShowOnForeground(), isFalse);
+    expect(state.shouldShowOnForeground(), isTrue);
+  });
+
+  test('beginShow skips the resume after its own fullscreen ad', () {
     state.setAdsRequestAllowed(true);
     final loadGeneration = state.beginLoad()!;
     expect(state.completeLoad(loadGeneration), isTrue);

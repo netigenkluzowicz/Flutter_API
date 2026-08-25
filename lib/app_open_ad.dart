@@ -56,6 +56,13 @@ void disableAppOpenAd() => _AppOpenAdSingleton.instance.disable();
 /// Re-enables App Open Ads after an explicit no-ads disable.
 void enableAppOpenAd() => _AppOpenAdSingleton.instance.enable();
 
+/// Skips automatic App Open Ad showing for the next app foreground event.
+///
+/// This is intended for a `resumed` event emitted after another fullscreen ad
+/// closes. The suppression is consumed by that one foreground event.
+void suppressNextAppOpenOnForeground() =>
+    _AppOpenAdSingleton.instance.suppressNextForeground();
+
 /// Detaches the lifecycle observer and disposes the cached App Open Ad.
 void disposeAppOpenAd() => _AppOpenAdSingleton.instance.dispose();
 
@@ -112,6 +119,8 @@ class _AppOpenAdSingleton with WidgetsBindingObserver {
     _disabled = false;
     _state.setDisabled(false);
   }
+
+  void suppressNextForeground() => _state.suppressNextForeground();
 
   Future<void> create() async {
     if (_state.isExpired && _appOpenAd != null) {
