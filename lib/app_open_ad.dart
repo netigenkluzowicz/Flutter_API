@@ -11,14 +11,22 @@ import 'utils.dart';
 ///
 /// Loading and showing remain blocked until [setAppOpenAdsAllowed] receives
 /// true after UMP consent and Mobile Ads initialization.
+/// The optional fullscreen callbacks are retained for ads shown automatically
+/// when the application returns to the foreground.
 void initAppOpenAd({
   required String adUnitId,
   AdRequest request = const AdRequest(),
   Duration maxCacheDuration = const Duration(hours: 4),
+  VoidCallback? onAdShowedFullScreenContent,
+  VoidCallback? onAdDismissedFullScreenContent,
+  VoidCallback? onAdFailedToShowFullScreenContent,
 }) => _AppOpenAdSingleton.instance.init(
   adUnitId: adUnitId,
   request: request,
   maxCacheDuration: maxCacheDuration,
+  onAdShowedFullScreenContent: onAdShowedFullScreenContent,
+  onAdDismissedFullScreenContent: onAdDismissedFullScreenContent,
+  onAdFailedToShowFullScreenContent: onAdFailedToShowFullScreenContent,
 );
 
 /// Preloads an App Open Ad when consent and no-ads state allow it.
@@ -59,6 +67,9 @@ class _AppOpenAdSingleton with WidgetsBindingObserver {
   AppOpenAd? _appOpenAd;
   String? _adUnitId;
   AdRequest _request = const AdRequest();
+  VoidCallback? _onLifecycleAdShowedFullScreenContent;
+  VoidCallback? _onLifecycleAdDismissedFullScreenContent;
+  VoidCallback? _onLifecycleAdFailedToShowFullScreenContent;
   bool _lifecycleAttached = false;
   bool _disabled = false;
 
@@ -66,12 +77,20 @@ class _AppOpenAdSingleton with WidgetsBindingObserver {
     required String adUnitId,
     required AdRequest request,
     required Duration maxCacheDuration,
+    required VoidCallback? onAdShowedFullScreenContent,
+    required VoidCallback? onAdDismissedFullScreenContent,
+    required VoidCallback? onAdFailedToShowFullScreenContent,
   }) {
     _disposeCachedAd();
     _state = AppOpenAdState(maxCacheDuration: maxCacheDuration);
     _state.setDisabled(_disabled);
     _adUnitId = adUnitId;
     _request = request;
+    _onLifecycleAdShowedFullScreenContent = onAdShowedFullScreenContent;
+    _onLifecycleAdDismissedFullScreenContent =
+        onAdDismissedFullScreenContent;
+    _onLifecycleAdFailedToShowFullScreenContent =
+        onAdFailedToShowFullScreenContent;
     if (!_lifecycleAttached) {
       WidgetsBinding.instance.addObserver(this);
       _lifecycleAttached = true;
@@ -183,7 +202,16 @@ class _AppOpenAdSingleton with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed && _state.shouldShowOnForeground()) {
-      unawaited(show());
+      unawaited(
+        show(
+          onAdShowedFullScreenContent:
+              _onLifecycleAdShowedFullScreenContent,
+          onAdDismissedFullScreenContent:
+              _onLifecycleAdDismissedFullScreenContent,
+          onAdFailedToShowFullScreenContent:
+              _onLifecycleAdFailedToShowFullScreenContent,
+        ),
+      );
     }
   }
 
@@ -195,6 +223,9 @@ class _AppOpenAdSingleton with WidgetsBindingObserver {
     _state.setAdsRequestAllowed(false);
     _disposeCachedAd();
     _adUnitId = null;
+    _onLifecycleAdShowedFullScreenContent = null;
+    _onLifecycleAdDismissedFullScreenContent = null;
+    _onLifecycleAdFailedToShowFullScreenContent = null;
   }
 
   void _preloadIfAllowed() {
