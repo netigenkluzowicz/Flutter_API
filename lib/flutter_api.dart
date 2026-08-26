@@ -21,3 +21,4 @@ export 'payment_service.dart';
 export 'rewarded_ad.dart';
 export 'survey_screen.dart';
 export 'subscription_offer_selector.dart';
+export 'startup_monetization.dart';
