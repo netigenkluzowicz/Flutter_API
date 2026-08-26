@@ -319,6 +319,23 @@ class PaymentService {
         (products.isEmpty ? null : products.first);
   }
 
+  /// Returns paywall-ready metadata for one deterministic subscription offer.
+  /// The returned [SubscriptionOfferDetails.productDetails] preserves the
+  /// store's offer token for [buyNonConsumable].
+  SubscriptionOfferDetails? subscriptionOfferById(
+    String id, {
+    String? basePlanId,
+    String? offerTag,
+    required bool requiresFreeTrial,
+  }) => selectSubscriptionOfferDetails(
+    _allProducts
+        .where((product) => product.id == id)
+        .map(SubscriptionOfferDetails.fromProductDetails),
+    basePlanId: basePlanId,
+    offerTag: offerTag,
+    requiresFreeTrial: requiresFreeTrial,
+  );
+
   ProductDetails? _androidSubscriptionProduct(
     List<ProductDetails> products, {
     String? basePlanId,

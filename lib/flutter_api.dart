@@ -22,3 +22,4 @@ export 'rewarded_ad.dart';
 export 'survey_screen.dart';
 export 'subscription_offer_selector.dart';
 export 'startup_monetization.dart';
+export 'startup_ads_coordinator.dart';

@@ -1,4 +1,4 @@
-import 'dart:async' show unawaited;
+import 'dart:async' show Completer, unawaited;
 
 import 'package:flutter/foundation.dart' show VoidCallback, kDebugMode;
 import 'package:flutter/widgets.dart';
@@ -6,6 +6,9 @@ import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import 'src/app_open_ad_state.dart';
 import 'utils.dart';
+
+/// Outcome of a non-blocking App Open Ad attempt.
+enum AppOpenAdShowResult { shown, unavailable, failed }
 
 /// Configures the App Open Ad format and attaches the app lifecycle observer.
 ///
@@ -45,6 +48,14 @@ Future<void> showAppOpenAd({
   onAdDismissedFullScreenContent: onAdDismissedFullScreenContent,
   onAdFailedToShowFullScreenContent: onAdFailedToShowFullScreenContent,
 );
+
+/// Shows a preloaded App Open Ad and reports whether it was actually shown.
+///
+/// Unlike [showAppOpenAd], this completes after a shown fullscreen ad is
+/// dismissed or fails. If no valid ad is already ready, it starts a preload
+/// and completes immediately with [AppOpenAdShowResult.unavailable].
+Future<AppOpenAdShowResult> tryShowAppOpenAd() =>
+    _AppOpenAdSingleton.instance.tryShow();
 
 /// Enables App Open Ad requests only after UMP reports `canRequestAds`.
 void setAppOpenAdsAllowed(bool value) =>
@@ -94,8 +105,7 @@ class _AppOpenAdSingleton with WidgetsBindingObserver {
     _adUnitId = adUnitId;
     _request = request;
     _onLifecycleAdShowedFullScreenContent = onAdShowedFullScreenContent;
-    _onLifecycleAdDismissedFullScreenContent =
-        onAdDismissedFullScreenContent;
+    _onLifecycleAdDismissedFullScreenContent = onAdDismissedFullScreenContent;
     _onLifecycleAdFailedToShowFullScreenContent =
         onAdFailedToShowFullScreenContent;
     if (!_lifecycleAttached) {
@@ -166,12 +176,51 @@ class _AppOpenAdSingleton with WidgetsBindingObserver {
     VoidCallback? onAdDismissedFullScreenContent,
     VoidCallback? onAdFailedToShowFullScreenContent,
   }) async {
+    await _show(
+      onAdShowedFullScreenContent: onAdShowedFullScreenContent,
+      onAdDismissedFullScreenContent: onAdDismissedFullScreenContent,
+      onAdFailedToShowFullScreenContent: onAdFailedToShowFullScreenContent,
+    );
+  }
+
+  Future<AppOpenAdShowResult> tryShow() {
+    final completer = Completer<AppOpenAdShowResult>();
+    _show(
+      onAdShowedFullScreenContent: () {},
+      onAdDismissedFullScreenContent: () {
+        if (!completer.isCompleted) {
+          completer.complete(AppOpenAdShowResult.shown);
+        }
+      },
+      onAdFailedToShowFullScreenContent: () {
+        if (!completer.isCompleted) {
+          completer.complete(AppOpenAdShowResult.failed);
+        }
+      },
+      onUnavailable: () {
+        if (!completer.isCompleted) {
+          completer.complete(AppOpenAdShowResult.unavailable);
+        }
+      },
+    );
+    return completer.future;
+  }
+
+  Future<void> _show({
+    VoidCallback? onAdShowedFullScreenContent,
+    VoidCallback? onAdDismissedFullScreenContent,
+    VoidCallback? onAdFailedToShowFullScreenContent,
+    VoidCallback? onUnavailable,
+  }) async {
     if (_state.isExpired && _appOpenAd != null) {
       _disposeCachedAd();
     }
     final ad = _appOpenAd;
     if (ad == null || !_state.beginShow()) {
-      unawaited(create());
+      // An optional App Open configuration may intentionally be absent for a
+      // launch. Do not turn that into an unhandled asynchronous error.
+      if (_adUnitId != null) unawaited(create());
+      onUnavailable?.call();
       return;
     }
 
@@ -213,8 +262,7 @@ class _AppOpenAdSingleton with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed && _state.shouldShowOnForeground()) {
       unawaited(
         show(
-          onAdShowedFullScreenContent:
-              _onLifecycleAdShowedFullScreenContent,
+          onAdShowedFullScreenContent: _onLifecycleAdShowedFullScreenContent,
           onAdDismissedFullScreenContent:
               _onLifecycleAdDismissedFullScreenContent,
           onAdFailedToShowFullScreenContent:

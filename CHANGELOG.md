@@ -1,3 +1,15 @@
+## 3.45.0+0
+
+- Add `StartupAdsCoordinator`: a testable, app-agnostic premium → UMP →
+  optional App Open stage that does not own paywall UI or wait for a cold ad
+  load.
+- Expose UMP privacy options and explicit App Open completion/suppression
+  outcomes for startup flow control.
+- Add `SubscriptionOfferDetails` and `PaymentService.subscriptionOfferById` for
+  paywall-ready store metadata, including free-trial period and Play offer token.
+- Preserve app-configured interstitial continuation/cooldown and disable cached
+  App Open, interstitial, and rewarded ads after verified no-ads entitlement.
+
 ## 3.44.0+1
 
 - Require Flutter 3.44 and Dart 3.12.
@@ -17,4 +29,3 @@
 ## 3.32.8+2
 
 - Previous shared implementation used by existing Netigen applications.
-
