@@ -921,6 +921,9 @@ class PaymentService {
   void dispose() {
     if (_disposed) return;
     _disposed = true;
+    // Closes the App Open suppression scope of a purchase that is still in
+    // flight, instead of leaving it open until the scope timeout.
+    _isBuying = false;
     _entitlementLifecycleGeneration += 1;
     if (!_entitlementLifecycleStop.isCompleted) {
       _entitlementLifecycleStop.complete();

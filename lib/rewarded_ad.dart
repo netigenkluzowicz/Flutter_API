@@ -214,13 +214,23 @@ class _RewardedAdSingleton {
       },
     );
 
-    ad.show(
-      onUserEarnedReward: (AdWithoutView ad, RewardItem _) {
-        rewardEarned = true;
-        onUserEarnedReward();
-        _infoLog('onUserEarnedReward');
-      },
-    );
+    try {
+      await ad.show(
+        onUserEarnedReward: (AdWithoutView ad, RewardItem _) {
+          rewardEarned = true;
+          onUserEarnedReward();
+          _infoLog('onUserEarnedReward');
+        },
+      );
+    } catch (error) {
+      // A failing `show()` emits no fullscreen callback, so the suppression
+      // scope would otherwise stay open until its timeout.
+      _errorLog('show error: $error');
+      suppression.end();
+      _disposeAd(ad);
+      _executeCallback(onAdFailedToShowFullScreenContent);
+      _preloadIfAllowed();
+    }
   }
 
   void _executeCallback(VoidCallback? cb) {

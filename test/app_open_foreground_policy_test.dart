@@ -62,6 +62,41 @@ void main() {
       expect(returnFromBackground(), isTrue);
     });
 
+    test('a nested scope does not inherit the foreground of the outer one', () {
+      // Interstitial dismissed, then the purchase sheet opens before the
+      // interstitial scope is closed: the purchase must still get its own
+      // grace for the `resumed` that closing the sheet emits.
+      final interstitial = policy.beginScope();
+      expect(returnFromBackground(), isFalse);
+      final purchase = policy.beginScope();
+      interstitial.end();
+      purchase.end();
+
+      now = now.add(const Duration(seconds: 3));
+      expect(returnFromBackground(), isFalse);
+    });
+
+    test('the grace of a nested scope expires like any other', () {
+      final interstitial = policy.beginScope();
+      expect(returnFromBackground(), isFalse);
+      final purchase = policy.beginScope();
+      interstitial.end();
+      purchase.end();
+
+      now = now.add(const Duration(seconds: 4));
+      expect(returnFromBackground(), isTrue);
+    });
+
+    test('a nested scope that saw its own foreground arms no grace', () {
+      final interstitial = policy.beginScope();
+      final purchase = policy.beginScope();
+      expect(returnFromBackground(), isFalse);
+      interstitial.end();
+      purchase.end();
+
+      expect(returnFromBackground(), isTrue);
+    });
+
     test('a forgotten scope expires after its timeout', () {
       policy.beginScope(timeout: const Duration(minutes: 10));
       now = now.add(const Duration(minutes: 11));

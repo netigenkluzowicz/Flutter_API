@@ -39,10 +39,10 @@ class AppOpenForegroundPolicy {
   /// See [defaultLateForegroundGrace].
   Duration lateForegroundGrace;
 
-  final Map<int, DateTime> _scopes = <int, DateTime>{};
+  final Map<int, _Scope> _scopes = <int, _Scope>{};
   int _nextScopeId = 0;
   bool _backgrounded = false;
-  bool _foregroundSeenInScope = false;
+  int _foregroundEvents = 0;
   DateTime? _oneShotUntil;
   DateTime? _lastFullscreenAdAt;
 
@@ -71,7 +71,10 @@ class AppOpenForegroundPolicy {
   AppOpenSuppression beginScope({Duration timeout = defaultScopeTimeout}) {
     _purgeExpiredScopes();
     final id = _nextScopeId++;
-    _scopes[id] = _now().add(timeout);
+    _scopes[id] = _Scope(
+      expiresAt: _now().add(timeout),
+      foregroundEventsAtStart: _foregroundEvents,
+    );
     return AppOpenSuppression._(this, id);
   }
 
@@ -94,10 +97,10 @@ class AppOpenForegroundPolicy {
   bool allowsForegroundShow() {
     final wasBackgrounded = _backgrounded;
     _backgrounded = false;
+    _foregroundEvents++;
     _purgeExpiredScopes();
 
     if (_scopes.isNotEmpty) {
-      _foregroundSeenInScope = true;
       return false;
     }
 
@@ -118,11 +121,15 @@ class AppOpenForegroundPolicy {
     return true;
   }
 
-  /// Clears every scope, one-shot and impression time. Used on dispose.
+  /// Clears every scope, one-shot and impression time.
+  ///
+  /// This instance is shared by every ad format, the payment service and the
+  /// consent form, so a single feature being disposed must not call it. It is
+  /// meant for a deliberate teardown of the whole library, typically in tests.
   void reset() {
     _scopes.clear();
     _backgrounded = false;
-    _foregroundSeenInScope = false;
+    _foregroundEvents = 0;
     _oneShotUntil = null;
     _lastFullscreenAdAt = null;
   }
@@ -138,11 +145,14 @@ class AppOpenForegroundPolicy {
   }
 
   void _endScope(int id) {
-    if (_scopes.remove(id) == null) return;
+    final scope = _scopes.remove(id);
+    if (scope == null) return;
     _purgeExpiredScopes();
     if (_scopes.isNotEmpty) return;
-    final seen = _foregroundSeenInScope;
-    _foregroundSeenInScope = false;
+    // Whether a foreground event was already swallowed for this very scope,
+    // counted per scope so a nested scope does not inherit the event of the
+    // one it was opened inside.
+    final seen = _foregroundEvents != scope.foregroundEventsAtStart;
     // The lifecycle `resumed` for this scope may still be on its way.
     if (!seen && lateForegroundGrace > Duration.zero) {
       suppressNextForeground(timeout: lateForegroundGrace);
@@ -152,9 +162,17 @@ class AppOpenForegroundPolicy {
   void _purgeExpiredScopes() {
     if (_scopes.isEmpty) return;
     final now = _now();
-    _scopes.removeWhere((_, expiresAt) => now.isAfter(expiresAt));
-    if (_scopes.isEmpty) _foregroundSeenInScope = false;
+    _scopes.removeWhere((_, scope) => now.isAfter(scope.expiresAt));
   }
+}
+
+/// One open suppression scope: when it expires and how many foreground events
+/// the policy had already seen when it started.
+class _Scope {
+  _Scope({required this.expiresAt, required this.foregroundEventsAtStart});
+
+  final DateTime expiresAt;
+  final int foregroundEventsAtStart;
 }
 
 /// Handle of one suppression scope from [AppOpenForegroundPolicy.beginScope].

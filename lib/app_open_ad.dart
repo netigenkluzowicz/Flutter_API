@@ -265,8 +265,11 @@ class _AppOpenAdSingleton with WidgetsBindingObserver {
     if (_state.isExpired && _appOpenAd != null) {
       _disposeCachedAd();
     }
+    // Captured like in [create] so a re-initialization while this ad is on
+    // screen cannot leave the suppression scope of the old state open.
+    final state = _state;
     final ad = _appOpenAd;
-    if (ad == null || !_state.beginShow()) {
+    if (ad == null || !state.beginShow()) {
       // An optional App Open configuration may intentionally be absent for a
       // launch. Do not turn that into an unhandled asynchronous error.
       if (_adUnitId != null) unawaited(create());
@@ -278,19 +281,19 @@ class _AppOpenAdSingleton with WidgetsBindingObserver {
     ad.fullScreenContentCallback = FullScreenContentCallback<AppOpenAd>(
       onAdShowedFullScreenContent: (ad) {
         _infoLog('onAdShowedFullScreenContent');
-        _state.recordShown();
+        state.recordShown();
         onAdShowedFullScreenContent?.call();
       },
       onAdDismissedFullScreenContent: (ad) {
         _infoLog('onAdDismissedFullScreenContent');
-        _state.finishShow();
+        state.finishShow();
         ad.dispose();
         onAdDismissedFullScreenContent?.call();
         _preloadIfAllowed();
       },
       onAdFailedToShowFullScreenContent: (ad, error) {
         _errorLog('onAdFailedToShowFullScreenContent: $error');
-        _state.finishShow();
+        state.finishShow();
         ad.dispose();
         onAdFailedToShowFullScreenContent?.call();
         _preloadIfAllowed();
@@ -300,7 +303,7 @@ class _AppOpenAdSingleton with WidgetsBindingObserver {
     try {
       await ad.show();
     } catch (error) {
-      _state.finishShow();
+      state.finishShow();
       ad.dispose();
       _errorLog('show error: $error');
       onAdFailedToShowFullScreenContent?.call();
@@ -334,7 +337,10 @@ class _AppOpenAdSingleton with WidgetsBindingObserver {
     }
     _state.setAdsRequestAllowed(false);
     _disposeCachedAd();
-    AppOpenForegroundPolicy.instance.reset();
+    // The foreground policy is shared with the interstitial, rewarded,
+    // payment and consent code, so disposing this format must not clear
+    // scopes those own. Call [AppOpenForegroundPolicy.reset] explicitly if a
+    // full library teardown is really intended.
     _adUnitId = null;
     _onLifecycleAdShowedFullScreenContent = null;
     _onLifecycleAdDismissedFullScreenContent = null;
