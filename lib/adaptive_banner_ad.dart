@@ -3,10 +3,28 @@ import 'dart:async';
 import 'package:flutter/widgets.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
+import 'src/banner_ad_gate.dart';
+
+/// Enables banner loading only after UMP reports that ads may be requested.
+///
+/// Called by `showConsent` and the startup ads platform, like
+/// [setInterstitialAdsAllowed] for the other formats.
+void setBannerAdsAllowed(bool value) =>
+    BannerAdGate.instance.setRequestAllowed(value);
+
+/// Disables banner ads for premium/no-ads users and disposes mounted banners.
+void disableBannerAd() => BannerAdGate.instance.setDisabled(true);
+
+/// Re-enables banner ads after an explicit no-ads disable.
+void enableBannerAd() => BannerAdGate.instance.setDisabled(false);
+
 /// A phone- and tablet-safe anchored adaptive banner.
 ///
-/// Set [enabled] only after UMP's `canRequestAds` is true and the user is not
-/// premium. Failed and removed ads are always disposed.
+/// [enabled] is the application's decision to show a banner in this place. The
+/// library decides on its own whether an ad may be requested at all, through
+/// [setBannerAdsAllowed] / [disableBannerAd]; a mounted banner disposes itself
+/// as soon as consent is withdrawn. Failed and removed ads are always
+/// disposed.
 class AdaptiveBannerAd extends StatefulWidget {
   const AdaptiveBannerAd({
     super.key,
@@ -32,6 +50,24 @@ class _AdaptiveBannerAdState extends State<AdaptiveBannerAd> {
   int? _requestedWidth;
   int _loadGeneration = 0;
 
+  bool get _canLoad => widget.enabled && BannerAdGate.instance.value;
+
+  @override
+  void initState() {
+    super.initState();
+    BannerAdGate.instance.addListener(_onGateChanged);
+  }
+
+  void _onGateChanged() {
+    if (!mounted) return;
+    if (BannerAdGate.instance.value) {
+      _loadForCurrentWidth();
+    } else {
+      setState(_disposeBanner);
+      _requestedWidth = null;
+    }
+  }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -41,7 +77,7 @@ class _AdaptiveBannerAdState extends State<AdaptiveBannerAd> {
   @override
   void didUpdateWidget(covariant AdaptiveBannerAd oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!widget.enabled) {
+    if (!_canLoad) {
       _disposeBanner();
       _requestedWidth = null;
       return;
@@ -56,7 +92,7 @@ class _AdaptiveBannerAdState extends State<AdaptiveBannerAd> {
   }
 
   void _loadForCurrentWidth() {
-    if (!widget.enabled) return;
+    if (!_canLoad) return;
     final width = MediaQuery.sizeOf(context).width.truncate();
     if (width <= 0 || width == _requestedWidth) return;
     _requestedWidth = width;
@@ -66,9 +102,16 @@ class _AdaptiveBannerAdState extends State<AdaptiveBannerAd> {
   Future<void> _load(int width) async {
     _disposeBanner();
     final generation = _loadGeneration;
+    final gateGeneration = BannerAdGate.instance.generation;
 
     final size = await AdSize.getLargeAnchoredAdaptiveBannerAdSize(width);
-    if (!mounted || generation != _loadGeneration || size == null) return;
+    if (!mounted ||
+        generation != _loadGeneration ||
+        size == null ||
+        !_canLoad ||
+        !BannerAdGate.instance.isCurrent(gateGeneration)) {
+      return;
+    }
 
     late final BannerAd banner;
     banner = BannerAd(
@@ -77,7 +120,10 @@ class _AdaptiveBannerAdState extends State<AdaptiveBannerAd> {
       size: size,
       listener: BannerAdListener(
         onAdLoaded: (ad) {
-          if (!mounted || generation != _loadGeneration || !widget.enabled) {
+          if (!mounted ||
+              generation != _loadGeneration ||
+              !_canLoad ||
+              !BannerAdGate.instance.isCurrent(gateGeneration)) {
             ad.dispose();
             return;
           }
@@ -104,6 +150,7 @@ class _AdaptiveBannerAdState extends State<AdaptiveBannerAd> {
 
   @override
   void dispose() {
+    BannerAdGate.instance.removeListener(_onGateChanged);
     _disposeBanner();
     super.dispose();
   }
@@ -111,7 +158,7 @@ class _AdaptiveBannerAdState extends State<AdaptiveBannerAd> {
   @override
   Widget build(BuildContext context) {
     final banner = _bannerAd;
-    if (!widget.enabled || banner == null) {
+    if (!_canLoad || banner == null) {
       return const SizedBox.shrink();
     }
 

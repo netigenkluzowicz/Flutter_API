@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:google_mobile_ads/google_mobile_ads.dart'
     show ConsentRequestParameters;
 import 'ad_consent.dart';
+import 'adaptive_banner_ad.dart';
 import 'app_open_ad.dart';
 import 'interstitial_ad.dart';
 import 'rewarded_ad.dart';
@@ -55,6 +56,10 @@ class StartupAdsResult {
 /// An application normally uses [StartupAdsCoordinator.mobileAds]. Supplying this
 /// interface makes startup policy deterministic to test and supports apps with
 /// their own ad wrappers.
+///
+/// Banners are not part of this interface: they have no preload or try-show
+/// stage, so a mounted banner reacts to `setBannerAdsAllowed` /
+/// `disableBannerAd` on its own instead of going through the coordinator.
 abstract interface class StartupAdsPlatform {
   FutureOr<void> enableAdsAfterConsent();
   FutureOr<void> disableAdsForPremium();
@@ -70,9 +75,11 @@ class _MobileAdsStartupPlatform implements StartupAdsPlatform {
     setAppOpenAdsAllowed(false);
     setInterstitialAdsAllowed(false);
     setRewardedAdsAllowed(false);
+    setBannerAdsAllowed(false);
     disableAppOpenAd();
     disableInterstitialAd();
     disableRewardedAd();
+    disableBannerAd();
   }
 
   @override
@@ -80,9 +87,11 @@ class _MobileAdsStartupPlatform implements StartupAdsPlatform {
     enableAppOpenAd();
     enableInterstitialAd();
     enableRewardedAd();
+    enableBannerAd();
     setAppOpenAdsAllowed(true);
     setInterstitialAdsAllowed(true);
     setRewardedAdsAllowed(true);
+    setBannerAdsAllowed(true);
   }
 
   @override

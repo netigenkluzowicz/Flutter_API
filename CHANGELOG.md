@@ -19,6 +19,35 @@
   previously the second call replaced the first caller's callbacks and its
   future never completed. A `show()` exception now completes the callbacks.
 - `AppOpenForegroundPolicy` and its tests cover the foreground rules.
+- Banner ads follow UMP centrally: `setBannerAdsAllowed`, `enableBannerAd` and
+  `disableBannerAd` mirror the other formats and are wired into `showConsent`
+  and the startup ads platform. A mounted `AdaptiveBannerAd` now disposes its
+  ad as soon as consent is withdrawn, instead of trusting the application's
+  `enabled` flag alone. The `AdaptiveBannerAd(enabled:)` signature is
+  unchanged.
+- Overlapping `showConsent` calls share one execution, so the UMP form is
+  never presented twice; `MobileAds.instance.initialize()` runs once even when
+  two callers race. A sequential call still runs again, so a retry after a
+  network error works.
+- `disposeAppOpenAd` no longer resets the shared foreground policy, which
+  would have cleared suppression scopes owned by the interstitial, rewarded,
+  payment or consent code.
+- App Open callbacks keep the state they started with, so re-initialising the
+  format while an ad is on screen no longer leaks a suppression scope.
+- `PaymentService.dispose()` closes the suppression scope of a purchase that
+  is still in flight.
+- A failing `RewardedAd.show()` is caught, so it no longer leaves an unhandled
+  asynchronous error and a suppression scope open until its timeout.
+- Nested suppression scopes track the foreground events they swallowed
+  separately, so a scope opened inside another one still gets its own grace
+  window for the late `resumed` that belongs to it.
+
+### Migration note
+
+If an application wrapped `showInterstitialAd()` in `try/catch` to report a
+failed show to an external crash reporter, that catch no longer runs: a
+`show()` exception is now turned into the normal `onStartCallback` /
+`onEndCallback` sequence and logged inside the package.
 
 ## 3.45.0+0
 

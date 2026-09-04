@@ -5,10 +5,12 @@ import 'package:flutter/foundation.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import 'ad_consent.dart';
+import 'adaptive_banner_ad.dart';
 import 'app_open_ad.dart';
 import 'interstitial_ad.dart';
 import 'payment_service.dart';
 import 'rewarded_ad.dart';
+import 'src/single_flight.dart';
 import 'utils.dart';
 
 /// - [mainInitialize] - jobs during native splash (should be overridden),
@@ -40,6 +42,9 @@ mixin class InitialServiceMixin {
   bool _adsCanRequest = false;
   bool _privacyOptionsRequired = false;
   List<String> _testDeviceIds = const [];
+
+  final SingleFlight<void> _showConsentFlight = SingleFlight<void>();
+  final SingleFlight<void> _mobileAdsInitFlight = SingleFlight<void>();
 
   /// True only after a fresh UMP update allows ad requests and the Mobile Ads
   /// SDK has been initialized.
@@ -73,9 +78,24 @@ mixin class InitialServiceMixin {
   /// - [AdConsent.requestConsent]
   /// - [createInterstitialAd]
   /// - [createAppOpenAd] / [showAppOpenAd] when configured
+  ///
+  /// Overlapping calls share one execution, so the UMP form is never presented
+  /// twice; a call made after the previous one finished runs again.
   Future<void> showConsent({
     bool skipConsentAndAd = false,
     bool showAdAfterConsent = false,
+    required List<String>? testDeviceIds,
+  }) => _showConsentFlight.run(
+    () => _showConsentOnce(
+      skipConsentAndAd: skipConsentAndAd,
+      showAdAfterConsent: showAdAfterConsent,
+      testDeviceIds: testDeviceIds,
+    ),
+  );
+
+  Future<void> _showConsentOnce({
+    required bool skipConsentAndAd,
+    required bool showAdAfterConsent,
     required List<String>? testDeviceIds,
   }) async {
     if (skipConsentAndAd) {
@@ -83,6 +103,7 @@ mixin class InitialServiceMixin {
       setInterstitialAdsAllowed(false);
       setRewardedAdsAllowed(false);
       setAppOpenAdsAllowed(false);
+      setBannerAdsAllowed(false);
       return;
     }
 
@@ -97,6 +118,7 @@ mixin class InitialServiceMixin {
       setInterstitialAdsAllowed(_adsCanRequest);
       setRewardedAdsAllowed(_adsCanRequest);
       setAppOpenAdsAllowed(_adsCanRequest);
+      setBannerAdsAllowed(_adsCanRequest);
 
       if (!_adsCanRequest) return;
       if (!_adsConfigured) {
@@ -127,6 +149,7 @@ mixin class InitialServiceMixin {
       setInterstitialAdsAllowed(false);
       setRewardedAdsAllowed(false);
       setAppOpenAdsAllowed(false);
+      setBannerAdsAllowed(false);
       _errorLog("showConsent error: $e");
     }
   }
@@ -175,14 +198,15 @@ mixin class InitialServiceMixin {
     _adsInitTime = sw.elapsedMilliseconds;
   }
 
-  Future<void> _initializeMobileAds() async {
+  /// Initializes the Mobile Ads SDK exactly once, also when two callers race.
+  Future<void> _initializeMobileAds() => _mobileAdsInitFlight.run(() async {
     if (_mobileAdsInitialized) return;
     await MobileAds.instance.updateRequestConfiguration(
       RequestConfiguration(testDeviceIds: _testDeviceIds),
     );
     await MobileAds.instance.initialize();
     _mobileAdsInitialized = true;
-  }
+  });
 
   /// - [activeProductIds] - all products that could be bought in app at this moment
   /// - [allProductIds] - all products to restoring (also depracated)
