@@ -1,4 +1,4 @@
-## Unreleased (proposal 2026-09-04, Netigen Tools / Recorder)
+## 3.46.0+0
 
 - App Open on foreground follows AdMob guidance without per-app workarounds:
   - shown only for a `resumed` that follows `paused` (a genuine switch back to
