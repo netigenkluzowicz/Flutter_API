@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart' show kDebugMode, VoidCallback;
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import 'src/ad_load_gate.dart';
+import 'src/app_open_foreground_policy.dart';
 import 'utils.dart';
 
 /// Must be used once before any [createInterstitialAd] or [showInterstitialAd].
@@ -42,13 +43,20 @@ Future<void> createInterstitialAd() async =>
 /// - when ad fails to show full screen content [FullScreenContentCallback.onAdFailedToShowFullScreenContent],
 /// - [skip] == true (ex. user is premium),
 /// - ad is not loaded,
+/// - another interstitial is already being shown (this call is skipped),
 /// - last ad was before [_InterstitialAdSingleton._minIntervalBetweenAdsInSecs],
 ///
 /// **[onEndCallback]** called when:
 /// - when an ad dismisses full screen content [FullScreenContentCallback.onAdDismissedFullScreenContent],
 /// - [skip] == true (ex. user is premium),
 /// - ad is not loaded,
+/// - another interstitial is already being shown (this call is skipped),
 /// - last ad was before [_InterstitialAdSingleton._minIntervalBetweenAdsInSecs],
+///
+/// Only one show is in flight at a time; a concurrent call completes at once
+/// through its callbacks without touching the ad object. While the ad is on
+/// screen and shortly after it closes, automatic App Open Ads are suppressed
+/// so the `resumed` emitted by the ad activity cannot show an ad after an ad.
 Future<void> showInterstitialAd({
   bool? skip,
   VoidCallback? onAdShowedFullScreenContent,
@@ -101,6 +109,8 @@ class _InterstitialAdSingleton {
   final _loadGate = AdLoadGate();
   bool _isLoading = false;
   bool _isReady = false;
+  bool _isShowing = false;
+  AppOpenSuppression? _showSuppression;
   bool _reloadAfterCurrentLoad = false;
   Completer<void>? _activeLoadCompleter;
 
@@ -276,7 +286,17 @@ class _InterstitialAdSingleton {
       }
     }
 
-    if (_interstitialAd == null) {
+    if (_isShowing) {
+      // A second show on the same ad object would replace the callbacks of
+      // the first caller and never complete its future.
+      _infoLog('show skipped: another interstitial is in flight.');
+      start();
+      end();
+      return c.future;
+    }
+
+    final ad = _interstitialAd;
+    if (ad == null || !_isReady) {
       _errorLog('attempt to show ad before loaded.');
       start();
       end();
@@ -284,22 +304,32 @@ class _InterstitialAdSingleton {
       return c.future;
     }
 
-    _interstitialAd
-        ?.fullScreenContentCallback = FullScreenContentCallback<InterstitialAd>(
+    _isShowing = true;
+    _showSuppression = AppOpenForegroundPolicy.instance.beginScope();
+    void finishShow() {
+      _isShowing = false;
+      _showSuppression?.end();
+      _showSuppression = null;
+    }
+
+    ad.fullScreenContentCallback = FullScreenContentCallback<InterstitialAd>(
       onAdShowedFullScreenContent: (InterstitialAd ad) {
         _infoLog('onAdShowedFullScreenContent');
+        AppOpenForegroundPolicy.instance.recordFullscreenAdShown();
         onAdShowedFullScreenContent?.call();
         start();
       },
       onAdDismissedFullScreenContent: (InterstitialAd ad) {
         _infoLog('onAdDismissedFullScreenContent');
         _lastAdDismissTime = DateTime.now();
+        finishShow();
         end();
         _disposeAdSync(ad);
         createInterstitialAd();
       },
       onAdFailedToShowFullScreenContent: (InterstitialAd ad, AdError error) {
         _errorLog('onAdFailedToShowFullScreenContent: $error');
+        finishShow();
         _disposeAdSync(ad);
         // intentionally
         start();
@@ -308,10 +338,17 @@ class _InterstitialAdSingleton {
       },
     );
 
-    if (_interstitialAd != null) {
-      await _interstitialAd!.setImmersiveMode(true);
+    try {
+      await ad.setImmersiveMode(true);
       _isReady = false;
-      await _interstitialAd!.show();
+      await ad.show();
+    } catch (error) {
+      _errorLog('show error: $error');
+      finishShow();
+      _disposeAdSync(ad);
+      start();
+      end();
+      createInterstitialAd();
     }
     return c.future;
   }

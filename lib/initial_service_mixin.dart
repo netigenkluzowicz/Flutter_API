@@ -132,11 +132,14 @@ mixin class InitialServiceMixin {
   }
 
   /// - ticks: times 200ms is the maximum ad loading time; 15 means 3 seconds; specifies how many times to check if the ad has been loaded before aborting
+  /// - [appOpenAdMinIntervalSinceFullscreenAd] - minimum time between any
+  ///   fullscreen ad impression and an automatic App Open on foreground
   Future<void> initAdsParameters({
     required String interstitialAdUnitId,
     required String rewardedAdUnitId,
     String? appOpenAdUnitId,
     Duration appOpenAdMaxCacheDuration = const Duration(hours: 4),
+    Duration appOpenAdMinIntervalSinceFullscreenAd = Duration.zero,
     int loadingTicksInterstitialAd = 15,
     int loadingTicksRewardedAd = 25,
     int minIntervalBetweenInterstitialAdsInSecs = 60,
@@ -157,6 +160,7 @@ mixin class InitialServiceMixin {
         initAppOpenAd(
           adUnitId: appOpenAdUnitId,
           maxCacheDuration: appOpenAdMaxCacheDuration,
+          minIntervalSinceFullscreenAd: appOpenAdMinIntervalSinceFullscreenAd,
         );
       }
       initInterstitialAd(

@@ -5,7 +5,10 @@ import 'package:flutter/widgets.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import 'src/app_open_ad_state.dart';
+import 'src/app_open_foreground_policy.dart';
 import 'utils.dart';
+
+export 'src/app_open_foreground_policy.dart' show AppOpenSuppression;
 
 /// Outcome of a non-blocking App Open Ad attempt.
 enum AppOpenAdShowResult { shown, unavailable, failed }
@@ -16,10 +19,18 @@ enum AppOpenAdShowResult { shown, unavailable, failed }
 /// true after UMP consent and Mobile Ads initialization.
 /// The optional fullscreen callbacks are retained for ads shown automatically
 /// when the application returns to the foreground.
+///
+/// An automatic App Open is shown only for a `resumed` that follows `paused`
+/// (a genuine switch back to the app), never while a suppression scope is
+/// active (another fullscreen ad, a purchase, the UMP form, or an application
+/// scope from [runWithoutAppOpenAd]), and only when at least
+/// [minIntervalSinceFullscreenAd] passed since the last fullscreen ad of any
+/// format. Zero keeps the historical behaviour.
 void initAppOpenAd({
   required String adUnitId,
   AdRequest request = const AdRequest(),
   Duration maxCacheDuration = const Duration(hours: 4),
+  Duration minIntervalSinceFullscreenAd = Duration.zero,
   VoidCallback? onAdShowedFullScreenContent,
   VoidCallback? onAdDismissedFullScreenContent,
   VoidCallback? onAdFailedToShowFullScreenContent,
@@ -27,6 +38,7 @@ void initAppOpenAd({
   adUnitId: adUnitId,
   request: request,
   maxCacheDuration: maxCacheDuration,
+  minIntervalSinceFullscreenAd: minIntervalSinceFullscreenAd,
   onAdShowedFullScreenContent: onAdShowedFullScreenContent,
   onAdDismissedFullScreenContent: onAdDismissedFullScreenContent,
   onAdFailedToShowFullScreenContent: onAdFailedToShowFullScreenContent,
@@ -69,10 +81,37 @@ void enableAppOpenAd() => _AppOpenAdSingleton.instance.enable();
 
 /// Skips automatic App Open Ad showing for the next app foreground event.
 ///
-/// This is intended for a `resumed` event emitted after another fullscreen ad
-/// closes. The suppression is consumed by that one foreground event.
-void suppressNextAppOpenOnForeground() =>
-    _AppOpenAdSingleton.instance.suppressNextForeground();
+/// Intended for fire-and-forget launches whose return the app cannot observe
+/// (system settings, an external browser). The suppression is consumed by the
+/// next foreground event or expires after [timeout], so a launch that never
+/// produces a `resumed` cannot swallow a later genuine return from background.
+/// Prefer [runWithoutAppOpenAd] or [beginAppOpenSuppression] when the
+/// operation exposes a completion. Other fullscreen ads, purchases and the UMP
+/// privacy form are suppressed by the package itself.
+void suppressNextAppOpenOnForeground({
+  Duration timeout = AppOpenForegroundPolicy.defaultOneShotTimeout,
+}) => _AppOpenAdSingleton.instance.suppressNextForeground(timeout: timeout);
+
+/// Suppresses automatic App Open Ads until [AppOpenSuppression.end] or
+/// [timeout], whichever comes first. Nested scopes are allowed.
+AppOpenSuppression beginAppOpenSuppression({
+  Duration timeout = AppOpenForegroundPolicy.defaultScopeTimeout,
+}) => AppOpenForegroundPolicy.instance.beginScope(timeout: timeout);
+
+/// Runs [action] so that no `resumed` emitted during it (or shortly after it)
+/// shows an App Open Ad. Use it around a permission request, a share sheet,
+/// or any other system UI opened from the app.
+Future<T> runWithoutAppOpenAd<T>(
+  Future<T> Function() action, {
+  Duration timeout = AppOpenForegroundPolicy.defaultScopeTimeout,
+}) async {
+  final suppression = beginAppOpenSuppression(timeout: timeout);
+  try {
+    return await action();
+  } finally {
+    suppression.end();
+  }
+}
 
 /// Detaches the lifecycle observer and disposes the cached App Open Ad.
 void disposeAppOpenAd() => _AppOpenAdSingleton.instance.dispose();
@@ -81,7 +120,9 @@ class _AppOpenAdSingleton with WidgetsBindingObserver {
   _AppOpenAdSingleton._();
   static final instance = _AppOpenAdSingleton._();
 
-  AppOpenAdState _state = AppOpenAdState();
+  AppOpenAdState _state = AppOpenAdState(
+    foregroundPolicy: AppOpenForegroundPolicy.instance,
+  );
   AppOpenAd? _appOpenAd;
   String? _adUnitId;
   AdRequest _request = const AdRequest();
@@ -95,12 +136,20 @@ class _AppOpenAdSingleton with WidgetsBindingObserver {
     required String adUnitId,
     required AdRequest request,
     required Duration maxCacheDuration,
+    required Duration minIntervalSinceFullscreenAd,
     required VoidCallback? onAdShowedFullScreenContent,
     required VoidCallback? onAdDismissedFullScreenContent,
     required VoidCallback? onAdFailedToShowFullScreenContent,
   }) {
     _disposeCachedAd();
-    _state = AppOpenAdState(maxCacheDuration: maxCacheDuration);
+    // The policy is shared and survives re-initialization so scopes opened
+    // by other formats or the application stay valid.
+    AppOpenForegroundPolicy.instance.minIntervalSinceFullscreenAd =
+        minIntervalSinceFullscreenAd;
+    _state = AppOpenAdState(
+      maxCacheDuration: maxCacheDuration,
+      foregroundPolicy: AppOpenForegroundPolicy.instance,
+    );
     _state.setDisabled(_disabled);
     _adUnitId = adUnitId;
     _request = request;
@@ -130,7 +179,8 @@ class _AppOpenAdSingleton with WidgetsBindingObserver {
     _state.setDisabled(false);
   }
 
-  void suppressNextForeground() => _state.suppressNextForeground();
+  void suppressNextForeground({required Duration timeout}) =>
+      _state.suppressNextForeground(timeout: timeout);
 
   Future<void> create() async {
     if (_state.isExpired && _appOpenAd != null) {
@@ -228,6 +278,7 @@ class _AppOpenAdSingleton with WidgetsBindingObserver {
     ad.fullScreenContentCallback = FullScreenContentCallback<AppOpenAd>(
       onAdShowedFullScreenContent: (ad) {
         _infoLog('onAdShowedFullScreenContent');
+        _state.recordShown();
         onAdShowedFullScreenContent?.call();
       },
       onAdDismissedFullScreenContent: (ad) {
@@ -259,6 +310,10 @@ class _AppOpenAdSingleton with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused) {
+      _state.markBackgrounded();
+      return;
+    }
     if (state == AppLifecycleState.resumed && _state.shouldShowOnForeground()) {
       unawaited(
         show(
@@ -279,6 +334,7 @@ class _AppOpenAdSingleton with WidgetsBindingObserver {
     }
     _state.setAdsRequestAllowed(false);
     _disposeCachedAd();
+    AppOpenForegroundPolicy.instance.reset();
     _adUnitId = null;
     _onLifecycleAdShowedFullScreenContent = null;
     _onLifecycleAdDismissedFullScreenContent = null;

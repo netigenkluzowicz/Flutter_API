@@ -1,25 +1,39 @@
 import 'ad_load_gate.dart';
+import 'app_open_foreground_policy.dart';
 
 /// State machine shared by the App Open Ad lifecycle and its unit tests.
 ///
 /// It deliberately has no dependency on Google Mobile Ads so a late native
 /// callback can be rejected after consent or premium/no-ads invalidates it.
+/// Foreground decisions are delegated to [AppOpenForegroundPolicy], which
+/// outlives this state across [initAppOpenAd] calls.
 class AppOpenAdState {
   factory AppOpenAdState({
     Duration maxCacheDuration = const Duration(hours: 4),
     DateTime Function()? now,
-  }) => AppOpenAdState._(maxCacheDuration, now ?? DateTime.now);
+    AppOpenForegroundPolicy? foregroundPolicy,
+  }) {
+    final clock = now ?? DateTime.now;
+    return AppOpenAdState._(
+      maxCacheDuration,
+      clock,
+      foregroundPolicy ?? AppOpenForegroundPolicy(now: clock),
+    );
+  }
 
-  AppOpenAdState._(this._maxCacheDuration, this._now);
+  AppOpenAdState._(this._maxCacheDuration, this._now, this.foregroundPolicy);
 
   final AdLoadGate _loadGate = AdLoadGate();
   final Duration _maxCacheDuration;
   final DateTime Function() _now;
 
+  /// Policy deciding whether a `resumed` event may show an App Open Ad.
+  final AppOpenForegroundPolicy foregroundPolicy;
+
   bool _isLoading = false;
   bool _isReady = false;
   bool _isShowing = false;
-  bool _ignoreNextForeground = false;
+  AppOpenSuppression? _showSuppression;
   int? _activeLoadGeneration;
   DateTime? _loadedAt;
 
@@ -72,22 +86,34 @@ class AppOpenAdState {
     _loadedAt = null;
     _isShowing = true;
     // A resume emitted while returning from the ad must not show its preload.
-    _ignoreNextForeground = true;
+    _showSuppression = foregroundPolicy.beginScope();
     return true;
   }
 
-  void finishShow() => _isShowing = false;
+  /// Records the impression for the fullscreen-ad interval.
+  void recordShown() => foregroundPolicy.recordFullscreenAdShown();
+
+  void finishShow() {
+    _isShowing = false;
+    _showSuppression?.end();
+    _showSuppression = null;
+  }
+
+  /// Records a `paused` lifecycle event.
+  void markBackgrounded() => foregroundPolicy.markBackgrounded();
 
   /// Suppresses App Open Ad showing for the next foreground event.
-  void suppressNextForeground() => _ignoreNextForeground = true;
+  void suppressNextForeground({
+    Duration timeout = AppOpenForegroundPolicy.defaultOneShotTimeout,
+  }) => foregroundPolicy.suppressNextForeground(timeout: timeout);
 
   /// Returns true only for a foreground event eligible to show an App Open Ad.
+  ///
+  /// The policy is always consulted first so it consumes its one-shot and
+  /// background markers even when no ad is ready.
   bool shouldShowOnForeground() {
-    if (_ignoreNextForeground) {
-      _ignoreNextForeground = false;
-      return false;
-    }
-    return canUseAds && isReady && !_isShowing;
+    final allowed = foregroundPolicy.allowsForegroundShow();
+    return allowed && canUseAds && isReady && !_isShowing;
   }
 
   void clearLoadedAd() {

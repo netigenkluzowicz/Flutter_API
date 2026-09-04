@@ -1,3 +1,25 @@
+## Unreleased (proposal 2026-09-04, Netigen Tools / Recorder)
+
+- App Open on foreground follows AdMob guidance without per-app workarounds:
+  - shown only for a `resumed` that follows `paused` (a genuine switch back to
+    the app), not after a permission dialog, the UMP form, an iOS alert or
+    any other overlay that only makes the app `inactive`;
+  - suppressed by the package around interstitial and rewarded ads, the store
+    purchase sheet (`buyNonConsumable`, also when cancelled), `requestConsent`
+    and `showPrivacyOptionsForm`;
+  - optional `minIntervalSinceFullscreenAd` (also
+    `initAdsParameters(appOpenAdMinIntervalSinceFullscreenAd:)`) measured from
+    the last impression of any fullscreen format; zero keeps old behaviour.
+- New `runWithoutAppOpenAd` / `beginAppOpenSuppression` scopes for system UI
+  opened by the application (share sheet, permission, settings).
+- `suppressNextAppOpenOnForeground` is now bounded by a timeout (default
+  5 min) so a launch that never emits `resumed` cannot swallow a later real
+  return from background.
+- `showInterstitialAd` ignores a concurrent call while a show is in flight;
+  previously the second call replaced the first caller's callbacks and its
+  future never completed. A `show()` exception now completes the callbacks.
+- `AppOpenForegroundPolicy` and its tests cover the foreground rules.
+
 ## 3.45.0+0
 
 - Add `StartupAdsCoordinator`: a testable, app-agnostic premium → UMP →

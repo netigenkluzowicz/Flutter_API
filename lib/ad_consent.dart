@@ -5,6 +5,7 @@ import 'package:app_tracking_transparency/app_tracking_transparency.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
+import 'src/app_open_foreground_policy.dart';
 import 'utils.dart';
 
 typedef ConsentCallback = FutureOr<void> Function();
@@ -63,6 +64,23 @@ class AdConsent {
     ConsentRequestParameters? params,
     bool requestTrackingAuthorization = true,
   }) async {
+    // The UMP form and the ATT prompt sit over the app; their dismissal must
+    // not be mistaken for a return from background.
+    final suppression = AppOpenForegroundPolicy.instance.beginScope();
+    try {
+      return await _requestConsentSuppressed(
+        params: params,
+        requestTrackingAuthorization: requestTrackingAuthorization,
+      );
+    } finally {
+      suppression.end();
+    }
+  }
+
+  Future<AdConsentResult> _requestConsentSuppressed({
+    required ConsentRequestParameters? params,
+    required bool requestTrackingAuthorization,
+  }) async {
     FormError? error = await _requestConsentInfoUpdate(params ?? _emptyParams);
 
     error ??= await _loadAndShowConsentFormIfRequired();
@@ -99,13 +117,19 @@ class AdConsent {
   /// entry point when UMP marks it as required.
   Future<AdConsentResult> showPrivacyOptionsForm() async {
     final completer = Completer<FormError?>();
+    final suppression = AppOpenForegroundPolicy.instance.beginScope();
     ConsentForm.showPrivacyOptionsForm((formError) {
       if (!completer.isCompleted) {
         completer.complete(formError);
       }
     });
 
-    final error = await completer.future;
+    final FormError? error;
+    try {
+      error = await completer.future;
+    } finally {
+      suppression.end();
+    }
     if (error != null) {
       _errorLog(
         'showPrivacyOptionsForm errorCode:${error.errorCode} '

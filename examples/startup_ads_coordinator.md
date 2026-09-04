@@ -31,8 +31,21 @@ if (shouldShowPaywallForThisLaunch) {
 
 `run` completes immediately if a preloaded App Open ad is unavailable; it does
 not wait for its network load. If it is shown, it completes after dismissal or
-failure. The implementation consumes foreground suppression so closing that
-fullscreen ad cannot trigger another App Open immediately.
+failure. Closing that fullscreen ad cannot trigger another App Open.
+
+Automatic App Open on foreground is shown only for a `resumed` that follows
+`paused` (a genuine switch back to the app). The package suppresses it around
+interstitial and rewarded ads, the store purchase sheet, `requestConsent` and
+`showPrivacyOptionsForm`. Wrap system UI the application opens itself:
+
+```dart
+final granted = await runWithoutAppOpenAd(() => requestMicrophonePermission());
+await runWithoutAppOpenAd(() => SharePlus.instance.share(params));
+suppressNextAppOpenOnForeground(); // fire-and-forget, e.g. openAppSettings()
+```
+
+A product-level spacing between fullscreen ads is configured once:
+`initAdsParameters(appOpenAdMinIntervalSinceFullscreenAd: Duration(minutes: 2))`.
 
 At a natural user transition, navigation is always safe after the returned
 future completes:

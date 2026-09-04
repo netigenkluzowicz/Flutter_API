@@ -22,6 +22,7 @@ import 'app_open_ad.dart';
 import 'src/entitlement_ledger.dart';
 import 'interstitial_ad.dart';
 import 'rewarded_ad.dart';
+import 'src/app_open_foreground_policy.dart';
 import 'subscription_offer_selector.dart';
 import 'utils.dart';
 
@@ -249,7 +250,22 @@ class PaymentService {
   bool _isAvailable = false;
   bool _purchasePending = false;
   bool _loading = true;
-  bool _isBuying = false;
+  bool _buying = false;
+  AppOpenSuppression? _purchaseSuppression;
+
+  /// The store purchase sheet returns to the app with a `resumed` (also when
+  /// the user cancels). Automatic App Open Ads are suppressed for the whole
+  /// purchase, until the terminal purchase-stream event or a timeout.
+  bool get _isBuying => _buying;
+  set _isBuying(bool value) {
+    _buying = value;
+    if (value) {
+      _purchaseSuppression ??= AppOpenForegroundPolicy.instance.beginScope();
+    } else {
+      _purchaseSuppression?.end();
+      _purchaseSuppression = null;
+    }
+  }
   String? _queryProductError;
 
   bool get premiumUser => _filterPremiumPurchases(_purchases).isNotEmpty;

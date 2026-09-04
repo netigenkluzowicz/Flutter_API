@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart' show VoidCallback, kDebugMode;
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import 'src/ad_load_gate.dart';
+import 'src/app_open_foreground_policy.dart';
 import 'utils.dart';
 
 /// Must be used once before any [showRewardedAd].
@@ -187,14 +188,24 @@ class _RewardedAdSingleton {
 
     await ad.setImmersiveMode(true);
 
+    // The rewarded activity emits `resumed` on close; never follow it with an
+    // automatic App Open Ad.
+    final suppression = AppOpenForegroundPolicy.instance.beginScope();
+
     ad.fullScreenContentCallback = FullScreenContentCallback<RewardedAd>(
+      onAdShowedFullScreenContent: (RewardedAd ad) {
+        _infoLog('onAdShowedFullScreenContent');
+        AppOpenForegroundPolicy.instance.recordFullscreenAdShown();
+      },
       onAdFailedToShowFullScreenContent: (RewardedAd ad, AdError error) {
         _errorLog('onAdFailedToShowFullScreenContent: $error');
+        suppression.end();
         _disposeAd(ad);
         _executeCallback(onAdFailedToShowFullScreenContent);
         _preloadIfAllowed();
       },
       onAdDismissedFullScreenContent: (RewardedAd ad) {
+        suppression.end();
         _disposeAd(ad);
         if (!rewardEarned) {
           _executeCallback(onDismissedWithoutReward);
