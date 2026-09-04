@@ -20,8 +20,12 @@
   future never completed. A `show()` exception now completes the callbacks.
 - `AppOpenForegroundPolicy` and its tests cover the foreground rules.
 - Banner ads follow UMP centrally: `setBannerAdsAllowed`, `enableBannerAd` and
-  `disableBannerAd` mirror the other formats and are wired into `showConsent`
-  and the startup ads platform. A mounted `AdaptiveBannerAd` now disposes its
+  `disableBannerAd` mirror the other formats and are wired into `showConsent`,
+  the startup ads platform and `PaymentService`, so a premium entitlement
+  verified during a session hides a mounted banner immediately instead of only
+  after the next start. `README.md` documents the split: the package enforces
+  consent and the no-ads entitlement, `enabled` is the application's placement
+  decision. A mounted `AdaptiveBannerAd` now disposes its
   ad as soon as consent is withdrawn, instead of trusting the application's
   `enabled` flag alone. The `AdaptiveBannerAd(enabled:)` signature is
   unchanged.

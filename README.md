@@ -38,7 +38,6 @@ Applications must:
 - show a visible Privacy choices setting when
   `privacyOptionsRequired == true`,
 - call `AdConsent.showPrivacyOptionsForm()` from that setting,
-- pass `adsCanRequest && !premiumUser` to `AdaptiveBannerAd.enabled`,
 - use interstitials only at natural transitions,
 - provide their own privacy policy, Google Play Data Safety answers, and Apple
   App Privacy disclosures.
@@ -46,9 +45,18 @@ Applications must:
 UMP is consent infrastructure; it does not by itself make an application legally
 compliant.
 
-`AdaptiveBannerAd` has no global cache: when a verified premium state causes
-the application to rebuild it with `enabled: false`, the widget immediately
-disposes any loaded `BannerAd` and renders nothing.
+Consent and the no-ads entitlement are enforced by the package for every
+format, banners included. `showConsent` opens the banner gate only when UMP
+returns `canRequestAds == true` and closes it again when consent is withdrawn
+or the request fails; `PaymentService` and `StartupAdsCoordinator` close it as
+soon as a premium entitlement is verified and reopen it when that entitlement
+is removed. An application therefore passes to `AdaptiveBannerAd.enabled` only
+its own placement decision, that is whether it wants a banner in this place at
+all, and never has to repeat the `adsCanRequest && !premiumUser` check there.
+
+`AdaptiveBannerAd` has no global cache and does not wait for a rebuild: a
+mounted banner disposes its loaded `BannerAd` and renders nothing the moment
+the gate closes, whether the application rebuilds it or not.
 
 ## Startup ads, paywalls, and navigation
 

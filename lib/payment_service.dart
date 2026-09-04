@@ -18,6 +18,7 @@ import 'package:in_app_purchase_storekit/store_kit_wrappers.dart'
         SKPaymentTransactionWrapper,
         SKStorefrontWrapper;
 
+import 'adaptive_banner_ad.dart';
 import 'app_open_ad.dart';
 import 'src/entitlement_ledger.dart';
 import 'interstitial_ad.dart';
@@ -100,6 +101,7 @@ class PaymentService {
       disableInterstitialAd();
       disableRewardedAd();
       disableAppOpenAd();
+      disableBannerAd();
     } else {
       enableInterstitialAd();
     }
@@ -633,6 +635,7 @@ class PaymentService {
     disableInterstitialAd();
     disableRewardedAd();
     disableAppOpenAd();
+    disableBannerAd();
     _purchasePending = false;
     final wasEntitled = _entitlements.contains(purchaseDetails.productID);
     _purchases.removeWhere(
@@ -679,6 +682,7 @@ class PaymentService {
     disableInterstitialAd();
     disableRewardedAd();
     disableAppOpenAd();
+    disableBannerAd();
     _purchasePending = false;
     final wasEntitled = _entitlements.contains(productId);
     _purchases.removeWhere((purchase) => purchase.productID == productId);
@@ -1159,6 +1163,7 @@ class PaymentService {
       enableInterstitialAd();
       enableRewardedAd();
       enableAppOpenAd();
+      enableBannerAd();
     }
   }
 
