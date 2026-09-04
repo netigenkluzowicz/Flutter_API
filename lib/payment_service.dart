@@ -268,6 +268,7 @@ class PaymentService {
       _purchaseSuppression = null;
     }
   }
+
   String? _queryProductError;
 
   bool get premiumUser => _filterPremiumPurchases(_purchases).isNotEmpty;

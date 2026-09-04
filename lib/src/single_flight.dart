@@ -22,11 +22,9 @@ class SingleFlight<T> {
     // The error of a failed operation belongs to the callers of [run]; this
     // bookkeeping listener must not report it a second time as an unhandled
     // asynchronous error.
-    future
-        .whenComplete(() {
-          if (identical(_inFlight, future)) _inFlight = null;
-        })
-        .ignore();
+    future.whenComplete(() {
+      if (identical(_inFlight, future)) _inFlight = null;
+    }).ignore();
     return future;
   }
 }

@@ -54,13 +54,16 @@ void main() {
     expect(returnFromBackground(), isTrue);
   });
 
-  test('resumed without a preceding paused is not a switch back to the app', () {
-    loadAd();
+  test(
+    'resumed without a preceding paused is not a switch back to the app',
+    () {
+      loadAd();
 
-    // Permission dialog, UMP form, iOS alert: inactive -> resumed only.
-    expect(state.shouldShowOnForeground(), isFalse);
-    expect(returnFromBackground(), isTrue);
-  });
+      // Permission dialog, UMP form, iOS alert: inactive -> resumed only.
+      expect(state.shouldShowOnForeground(), isFalse);
+      expect(returnFromBackground(), isTrue);
+    },
+  );
 
   test('suppression skips one eligible foreground event', () {
     loadAd();
